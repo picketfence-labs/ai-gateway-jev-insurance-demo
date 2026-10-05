@@ -1,6 +1,6 @@
 :root { color-scheme: light; --ink: #152b32; --muted: #587078; --teal: #007c78; --line: #d4e1df; --mint: #edf7f4; --paper: #f5f8f7; --alert: #fff2dc; }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--paper); color: var(--ink); font-family: "DM Sans", sans-serif; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; }
 .shell { max-width: 1160px; margin: auto; padding: 42px 24px 24px; }
 .hero { margin-bottom: 24px; }
 .eyebrow,.step { color: var(--teal); font-size: 12px; font-weight: 700; letter-spacing: .12em; }
@@ -48,5 +48,15 @@ pre { overflow: auto; background: #f2f6f5; border-radius: 9px; padding: 12px; fo
 .tool-receipts { color: var(--muted); font-size: 13px; }
 button.secondary { background: #e7efed; color: var(--ink); border: 1px solid var(--line); padding: 8px 14px; }
 button[aria-pressed="true"] { outline: 2px solid #004f4b; outline-offset: 2px; }
+.fact-groups { display: grid; gap: 10px; }
+.fact-group { border-top: 1px solid var(--line); padding-top: 6px; }
+.fact-group h4,.decision-field h4 { margin: 8px 0; }
+.fact-group dl { display: grid; gap: 7px; margin: 0; }
+.fact-row { display: grid; grid-template-columns: minmax(150px, .8fr) 1.2fr; gap: 10px; }
+.fact-row dt { color: var(--muted); }
+.fact-row dd { margin: 0; overflow-wrap: anywhere; }
+.raw-evidence { margin-top: 14px; color: var(--muted); font-size: 13px; }
+.raw-evidence summary { cursor: pointer; }
+.decision-field { border-top: 1px solid var(--line); padding-top: 5px; }
 footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 26px; padding: 18px 0; font-size: 13px; }
-@media (max-width: 720px) { .shell { padding: 25px 14px; } .grid { grid-template-columns: 1fr; } .result-heading { align-items: flex-start; flex-direction: column; } .live-gate { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 720px) { .shell { padding: 25px 14px; } .grid { grid-template-columns: 1fr; } .result-heading { align-items: flex-start; flex-direction: column; } .live-gate { align-items: flex-start; flex-direction: column; } .fact-row { grid-template-columns: 1fr; gap: 2px; } }

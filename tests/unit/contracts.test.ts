@@ -13,6 +13,7 @@ import { runLiveTurn } from "@/lib/gateway-agent";
 import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
+import { caseLabels, choiceLabel, displayFactValue, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
 
 function completeS1() {
   const ledger = new TurnLedger("S1");
@@ -147,6 +148,50 @@ describe("native Jev contract and one-attempt semantics", () => {
     expect(questions.priority.criteria).toEqual(["0: ordinary status or procedure inquiry", "1: additional clarification or reported mismatch", "2: explicit wish for early human contact"]);
   });
 
+  it("localizes Jev and fixture values for display without changing their evidence or wire contract", () => {
+    const actual = structuredClone(nativeResponse);
+    const actualSummary = summarizeDecision(actual);
+    expect(actualSummary?.kind).toBe("actual");
+    expect(actualSummary?.fields.map((field) => field.value)).toEqual([
+      "保険金請求の状況（claim_progress）",
+      "0.25 / 2（連続スコア。段階ラベルは付与していません）",
+      "保険金請求の状況を確認（claim_progress）",
+    ]);
+    expect(actualSummary?.fields[0].probabilities.find((row) => row.key === "claim_progress")?.label).toBe("保険金請求の状況（claim_progress）");
+    expect(actualSummary?.fields[0].confidence).toBe(0.98);
+    expect(actualSummary?.fields[1].legend[0].label).toBe("通常の状況確認・手続きに関する問い合わせ");
+    expect(actual).toEqual(nativeResponse);
+
+    const fixture = structuredClone(scenarios.S1.fixtureDecision);
+    const fixtureSummary = summarizeDecision(fixture);
+    expect(fixtureSummary?.kind).toBe("fixture");
+    expect(fixtureSummary?.fields.map((field) => field.value)).toEqual([
+      "保険金請求の状況（claim_progress）",
+      "0 / 2 · 通常の状況確認・手続きに関する問い合わせ",
+      "保険金請求の状況を確認（claim_progress）",
+    ]);
+    expect(fixture).toEqual(scenarios.S1.fixtureDecision);
+    for (const caseId of ["S1", "S2", "S3"] as const) {
+      const raw = structuredClone(scenarios[caseId].fixtureDecision);
+      const summary = summarizeDecision(raw);
+      expect(summary?.fields[0].value).toBe(choiceLabel("desk", raw.desk));
+      expect(summary?.fields[1].value).toContain(`${raw.priority} / 2`);
+      expect(summary?.fields[2].value).toBe(choiceLabel("next_check", raw.next_check));
+      expect(raw).toEqual(scenarios[caseId].fixtureDecision);
+    }
+    expect(choiceLabel("desk", "future_choice")).toBe("未対応の値（原値: future_choice）");
+    expect(displayState("ineligible")).toBe("評価対象外");
+    expect(displayState("future_state")).toBe("未対応の値（原値: future_state）");
+    expect(displayToolStatus("fixture_plan_only")).toBe("サンプル計画のみ（実行なし）");
+    expect(displaySource("offline_fixture")).toContain("OFFLINE FIXTURE");
+    expect(displayFactValue("status", "future_status")).toBe("未対応の値（原値: future_status）");
+    expect(displayFactValue("status", "未知の状態" )).toBe("未対応の値（原値: 未知の状態）");
+    expect(caseLabels.S1).toContain("自動車保険");
+    expect(localizedRubric.priorityCriteria).toHaveLength(3);
+    expect(questions.desk.instructions).toBe(INTAKE_RUBRIC.desk.instructions);
+    expect(questions.priority.criteria).toEqual(INTAKE_RUBRIC.priority.criteria);
+  });
+
   it("distinguishes missing, invalid choice, wrong-type, and out-of-range responses", () => {
     expect(() => parseNativeDecision({ model: "x", answers: { desk: {}, priority: {}, next_check: {} } })).toThrow(/Invalid desk/);
     expect(() => parseNativeDecision({ model: "x", answers: { desk: { type: "choice", choice: "write_policy" }, priority: nativeResponse.answers.priority, next_check: nativeResponse.answers.next_check }, usage: { input_tokens: 1, output_tokens: 1 } })).toThrow(/desk choice/);
@@ -207,8 +252,8 @@ describe("offline and live gates", () => {
     expect(preview.mode).toBe("OFFLINE FIXTURE");
     expect(preview.apiFacts.uniqueGetCount).toBe(0);
     expect(preview.comparison.liveGetCount).toBe(0);
-    expect(preview.jevCard?.label).toMatch(/Jev not called/);
-    expect(preview.notice).toMatch(/not connected or verified/);
+    expect(preview.jevCard?.label).toMatch(/OFFLINE FIXTURE.*Jev未実行/);
+    expect(preview.notice).toMatch(/LLM、MCP、Jevには接続していません/);
   });
 
   it("fails live closed before network even with complete-looking env", () => {

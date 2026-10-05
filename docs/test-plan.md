@@ -1,6 +1,6 @@
 # Test plan
 
-Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Latest local checks pass with 27 unit tests and zero secret-scan findings. The bounded chat/history delta awaits independent review and chat-specific browser smoke. The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
+Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Previous chat/history checks and browser smoke passed; current Japanese UI display checks pass with 28 unit tests and zero secret-scan findings. Independent localization delta review and Japanese localhost confirmation passed; see [browser evidence](evidence/browser-smoke.md). The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
 
 ## Offline acceptance before live access
 
@@ -20,6 +20,7 @@ Status: offline unit contracts, package commands, secret scanning, and CI are im
 | Bounded conversation context | One prior same-case live turn plus current inquiry; cross-case/mode, extra payload, or oversized input | At most two user turns total; text-only and length-checked before LLM; prior conversation explicitly unverified and cannot supply facts; Jev receives current inquiry only |
 | Chat/evidence state | Append assistant response and supplement, select historical turn, change case or mode | Turns append; only selected turn's four evidence sections render; case/mode change clears chat, snapshot, selection and results; fixture narrative/tool plan is labeled not model output/not executed; safe tool status excludes raw data/errors |
 | Evidence separation | User statement, projected facts, host rubric/version, Jev result, LLM supplement | Four evidence sections stay distinct; show the ordered priority scale and keep the supplement separate |
+| Japanese display mapping | Known/unknown Jev choices, score legend, confidence, probability, status/source, rubric, and all three fixture cases | Japanese explanatory text only; preserve underlying contract/decision/facts exactly; confidence is not correctness; unknown enum/status shows an unsupported-value label with raw value; optional collapsed JSON keeps original English keys/values |
 | Limits | Tool/step/text/byte/output bounds and partial ledgers | Stop explicitly without silent truncation or hidden retrieval |
 
 Implemented test file: `tests/unit/contracts.test.ts`. It uses synthetic fixtures and mocks; it does not make upstream requests. Realtime streaming and message-part rendering are not implemented. Keep credentials and real customer fields out of test data and evidence.
