@@ -1,6 +1,6 @@
 # Design brief
 
-Status: offline implementation scaffold with a separate live adapter boundary. The UI defaults to synthetic fixtures. Local lint, typecheck, 22 unit tests, secret scan, and production build pass; independent review and browser smoke passed. No live connection, model, MCP server, or Jev request has been tested. Date: 2026-10-05.
+Status: offline implementation scaffold with a separate live adapter boundary. The UI defaults to synthetic fixtures. Local lint, typecheck, 23 unit tests, secret scan, and production build pass; independent review and browser smoke passed. No live connection, model, MCP server, or Jev request has been tested. Date: 2026-10-05.
 
 ## Goal
 
@@ -95,7 +95,7 @@ Show the LLM supplement separately. “Raw request” means the projected Jev re
 
 ## Proposed limits and live gates
 
-- The implementation caps Phase A at six LLM generations and eight MCP tool invocations, including cache/snapshot hits. Phase C allows one tool-free generation. The server uses a UUIDv4 request ID and process-local single-flight response cache (15-minute retention, 4,096-entry cap) to replay concurrent or repeated identical submissions without another agent/Jev run; reusing an ID with changed input is rejected. Restarting a process or using multiple instances does not provide durable idempotency.
+- The implementation caps Phase A at six LLM generations and eight MCP tool invocations, including cache/snapshot hits. Phase C allows one tool-free generation. The server uses a UUIDv4 request ID and process-local single-flight response cache (4,096-entry cap) to replay concurrent or repeated identical submissions without another agent/Jev run. Entries remain reserved for the process lifetime, including after failures; reusing an ID with changed input is rejected. When the registry is full, new IDs fail closed. Restarting a process or using multiple instances does not provide durable idempotency.
 - Process-wide Gateway, Jev, and MCP budgets must be configured explicitly. A budget change after the process has configured its first values fails closed. The code does not claim monetary enforcement, token caps, durable budget accounting, or support for multiple instances.
 - Unique successful live business GETs: three for an application, four for a claim. Duplicate calls use turn cache; errors are not retried.
 - Text 2,000 characters, projected tool result 8 KiB, full snapshot 16 KiB. Exceeding a bound stops rather than silently truncating.

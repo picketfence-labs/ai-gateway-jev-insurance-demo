@@ -48,7 +48,7 @@ npm run secret-scan
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
-The latest local checks pass: lint, typecheck, 22 unit tests, a 35-file secret scan with zero findings, and a production build. Independent code review passed. The [localhost browser smoke](docs/evidence/browser-smoke.md) passed for three scenarios, comparisons, and error fixtures. Passing offline checks does not verify Gateway, MCP, model, or Jev connectivity.
+The latest local checks pass: lint, typecheck, 23 unit tests, a secret scan with zero findings, and a production build. Independent code review passed. The [localhost browser smoke](docs/evidence/browser-smoke.md) passed for three scenarios, comparisons, and error fixtures. Passing offline checks does not verify Gateway, MCP, model, or Jev connectivity.
 
 ## Demo boundaries
 

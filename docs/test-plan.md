@@ -1,6 +1,6 @@
 # Test plan
 
-Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Latest local checks pass with 22 unit tests and zero secret-scan findings. Independent review and browser smoke passed. The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
+Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Latest local checks pass with 23 unit tests and zero secret-scan findings. Independent review and browser smoke passed. The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
 
 ## Offline acceptance before live access
 
@@ -13,7 +13,7 @@ Status: offline unit contracts, package commands, secret scanning, and CI are im
 | Field semantics | Paid amount null, missing versus null, string status, product versus policy riders | No zero substitution, fabricated enum, or rider inference |
 | Jev contract | Missing answer key, wrong Choice, nonfinite/out-of-range score, invalid probabilities/confidence | Contract error; do not forward raw response or synthesize success |
 | Jev probability maps | Empty, missing candidate, unknown candidate, or incomplete Score map | Require every allowed candidate key, preserve values, warn above `1e-6` drift without normalization |
-| One attempt and replay | Duplicate request ID concurrently or after timeout; reuse ID with changed payload | One process-local agent/Jev run, cached response replay for identical input, conflict for changed input, failure stays consumed |
+| One attempt and replay | Duplicate request ID concurrently, after timeout, or after 15 minutes; reuse ID with changed payload | One process-local agent/Jev run, cached response replay for identical input, conflict for changed input, failure stays consumed until process restart |
 | Comparison | Parent snapshot hit/miss, reordered and duplicate tool calls | Visible snapshot source, fixed facts/rubric, no live fallback |
 | Phase C | Success and decision failure | Tools disabled; supplement cannot overwrite cards; failure skips supplement |
 | UI status and routing | Offline/live mode selection, readiness locked/ready, pending/error/completed | Offline default, no config values exposed, distinct routes, same request ID on unchanged retry, fixtures labeled offline |
@@ -63,7 +63,7 @@ Core expectations are hypotheses:
 
 Preserve actual outputs when hypotheses fail. Report transport success and recommendation quality separately. A score change, desk change, calibrated confidence, or perfect answer rate is not required or guaranteed.
 
-The earlier combined proposal of 43 normal LLM generations and seven Jev attempts is not a live budget or approval. The code requires explicit per-process Gateway/MCP/Jev budgets and caps a turn at six Phase A generations, eight MCP invocations, and one tool-free supplement. The single-flight registry is process-local and time-limited. Monetary caps, current pricing, model/SDK support, timeout behavior, and environment changes remain unverified. No live request is authorized by this plan.
+The earlier combined proposal of 43 normal LLM generations and seven Jev attempts is not a live budget or approval. The code requires explicit per-process Gateway/MCP/Jev budgets and caps a turn at six Phase A generations, eight MCP invocations, and one tool-free supplement. The single-flight registry is process-local, retains request IDs until process restart, and fails closed at its 4,096-entry cap. Monetary caps, current pricing, model/SDK support, timeout behavior, and environment changes remain unverified. No live request is authorized by this plan.
 
 ## Completion evidence
 

@@ -20,8 +20,8 @@ Append a dated entry when behavior differs from expectations. Include expectatio
 ## 2026-10-05: Offline implementation and local checks
 
 - Expected: the default UI and contract suite stay offline while the separate live path remains gated. No real data or credential is needed.
-- Observed: the repository now has a fixture UI, an explicitly configured live dispatch boundary, projected MCP wrappers, request-ID replay protection, a process-local comparison snapshot store, and 22 mocked unit tests. Live, model, MCP, and native Jev connectivity remain unverified.
-- Checks: `npm run lint` passed; `npm run typecheck` passed; `npm test` passed with 1 file and 22 tests; `npm run secret-scan` reported 34 files and 0 findings; `NEXT_TELEMETRY_DISABLED=1 npm run build` passed and generated `/`, `/api/live`, `/api/live/readiness`, and `/api/offline`.
+- Observed: the repository now has a fixture UI, an explicitly configured live dispatch boundary, projected MCP wrappers, request-ID replay protection, a process-local comparison snapshot store, and 23 mocked unit tests. Live, model, MCP, and native Jev connectivity remain unverified.
+- Checks: `npm run lint` passed; `npm run typecheck` passed; `npm test` passed with 1 file and 23 tests; `npm run secret-scan` reported 35 files and 0 findings; `NEXT_TELEMETRY_DISABLED=1 npm run build` passed and generated `/`, `/api/live`, `/api/live/readiness`, and `/api/offline`.
 - Action: independent code review and localhost browser smoke passed; see [browser evidence](evidence/browser-smoke.md). Keep live mode, external business API calls, paid model requests, Compose, and credential access disabled.
 - Evidence: local commands above use pinned dependencies and fixture/mocked transports. The production build has not tested any live route or endpoint.
 
@@ -39,3 +39,10 @@ Append a dated entry when behavior differs from expectations. Include expectatio
 - Final publication check: secret scan reported 35 text files and 0 findings; Git whitespace checks passed.
 - Remaining limits: live LLM/MCP/Gateway/native Jev connectivity, provider/model pin, recommendation quality, and Gateway-level retry controls remain unverified. Process-local replay/snapshot limits are documented. No live environment was enabled.
 - Handoff feedback: native schema and upstream-error privacy boundaries needed explicit contract tests. No additional workflow changes are required for this offline handoff.
+
+## 2026-10-05: Preserve request reservations until process restart
+
+- Expected: replaying a live request ID cannot reserve a second Jev attempt while the process remains running, even after elapsed time or a failed request.
+- Observed: the single-flight entry originally expired after 15 minutes, while each new agent call creates a fresh per-turn attempt registry.
+- Action: keep request IDs, fingerprints, and result promises for the full process lifetime; changed payloads conflict, failures stay consumed, and the 4,096-entry cap fails closed. Snapshot expiration remains independent.
+- Checks: lint, typecheck, tests, secret scan, and production build passed after the change. The focused unit test advances the fake clock by 16 minutes and verifies replay and consumed failures. No live request was made.

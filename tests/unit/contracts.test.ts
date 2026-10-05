@@ -5,7 +5,7 @@ import { buildNativeRequest, AttemptRegistry, executeAtMostOnce, parseNativeDeci
 import { INTAKE_RUBRIC } from "@/lib/rubric";
 import { runDecisionPhases } from "@/lib/orchestration";
 import { scenarios } from "@/lib/scenarios";
-import { isRequestId, ProcessUsageBudget, TurnLimits, validateLiveConfig } from "@/lib/live-config";
+import { isRequestId, LiveRequestRegistry, ProcessUsageBudget, TurnLimits, validateLiveConfig } from "@/lib/live-config";
 import { dispatchLivePayload } from "@/app/api/live/route";
 import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
@@ -287,6 +287,25 @@ describe("offline and live gates", () => {
     expect(await dispatchLivePayload(timeoutBody, env, failing)).toMatchObject({ status: 502 });
     expect(await dispatchLivePayload(timeoutBody, env, failing)).toMatchObject({ status: 502 });
     expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps request IDs consumed for process lifetime, including after 15 minutes and failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = new LiveRequestRegistry();
+      const operation = vi.fn(async () => "completed");
+      expect(await registry.execute(requestId(14), "same-payload", operation)).toEqual({ status: "created", result: "completed" });
+      vi.advanceTimersByTime(16 * 60 * 1000);
+      expect(await registry.execute(requestId(14), "same-payload", vi.fn(async () => "duplicate"))).toEqual({ status: "replayed", result: "completed" });
+      expect(await registry.execute(requestId(14), "changed-payload", vi.fn(async () => "changed"))).toEqual({ status: "conflict" });
+      expect(operation).toHaveBeenCalledTimes(1);
+
+      const failedOperation = vi.fn(async () => { throw new Error("failed once"); });
+      await expect(registry.execute(requestId(15), "failure-payload", failedOperation)).rejects.toThrow("failed once");
+      vi.advanceTimersByTime(16 * 60 * 1000);
+      await expect(registry.execute(requestId(15), "failure-payload", vi.fn(async () => "retry"))).rejects.toThrow("failed once");
+      expect(failedOperation).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
   });
 
   it("wires UI offline/live selection to distinct local routes using a stable live ID", async () => {

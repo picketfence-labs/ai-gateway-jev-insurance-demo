@@ -19,7 +19,7 @@ Read `docs/design-brief.md` and the current work item before changing the demo. 
 - Keep offline contracts in `tests/unit/` and use synthetic fixtures only. Add broader contract/browser test directories only when the work requires them.
 - Run the documented build, typecheck, lint, test, and secret-scan commands for code changes. CI runs offline checks with fixture transports; no live test is enabled. A passing build or fixture test does not verify live Gateway, MCP, model, or Jev connectivity.
 - The live path requires explicit `DEMO_MODE=live`, `LIVE_ACCESS_APPROVED=true`, `LIVE_UI_ENABLED=true`, and complete endpoint, model, timeout, and budget configuration. Do not set these flags or make a live request without a separate approved scope. The live readiness route returns status only and never exposes configuration values.
-- Comparison snapshots and request replay results are process-local, time-limited, and not shared across instances. Do not describe them as durable idempotency.
+- Comparison snapshots are process-local and time-limited. Request replay entries remain reserved until process restart, with a 4,096-entry fail-closed cap. Neither is shared across instances or durable idempotency.
 - Use runtime permission controls for the active provider. Do not copy another provider's permission schema. A second provider adapter can be added only when needed.
 - At handoff report: changes, executed checks and raw evidence, deviations, unresolved items, instruction/process feedback, and PR/ADR/log links. Persist feedback in the PR or troubleshooting log, even when it is “none.”
 - The requesting coordinator validates technical evidence independently; the demo owner performs acceptance. PR merge does not automatically close the work item.

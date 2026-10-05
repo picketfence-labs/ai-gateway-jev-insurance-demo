@@ -132,10 +132,9 @@ export function isRequestId(value: unknown): value is string {
 }
 
 export class LiveRequestRegistry {
-  private readonly reserved = new Map<string, { fingerprint: string; expiresAt: number; result: Promise<unknown> }>();
+  private readonly reserved = new Map<string, { fingerprint: string; result: Promise<unknown> }>();
 
-  async execute<T>(requestId: string, fingerprint: string, operation: () => Promise<T>, now = Date.now()): Promise<{ status: "created" | "replayed"; result: T } | { status: "conflict" | "full" }> {
-    for (const [id, entry] of this.reserved) if (entry.expiresAt <= now) this.reserved.delete(id);
+  async execute<T>(requestId: string, fingerprint: string, operation: () => Promise<T>): Promise<{ status: "created" | "replayed"; result: T } | { status: "conflict" | "full" }> {
     const previous = this.reserved.get(requestId);
     if (previous) {
       if (previous.fingerprint !== fingerprint) return { status: "conflict" };
@@ -143,7 +142,7 @@ export class LiveRequestRegistry {
     }
     if (this.reserved.size >= 4096) return { status: "full" };
     const result = Promise.resolve().then(operation);
-    this.reserved.set(requestId, { fingerprint, expiresAt: now + 15 * 60 * 1000, result });
+    this.reserved.set(requestId, { fingerprint, result });
     return { status: "created", result: await result };
   }
 }
