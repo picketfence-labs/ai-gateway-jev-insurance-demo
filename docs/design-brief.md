@@ -2,6 +2,10 @@
 
 Status: offline implementation scaffold with a separate live adapter boundary. The UI defaults to synthetic fixtures. Local lint, typecheck, 23 unit tests, secret scan, and production build pass; independent review and browser smoke passed. No live connection, model, MCP server, or Jev request has been tested. Date: 2026-10-05.
 
+## Current delivery gap
+
+The implemented UI submits one inquiry and replaces its result card. The agent uses only the current inquiry: multi-turn history, the planned same-target recent user turns, Chat UI message parts, and conversation streaming are not implemented. These remain requirements, not completed or waived features. Existing offline verification covers the implemented single-inquiry/agent/decision boundaries only; full conversational acceptance remains pending.
+
 ## Goal
 
 Build a simple Chat UI showing an LLM calling insurance tools and Jev returning typed intake recommendations through Kong AI Gateway 2.2. Show the submitted facts and criteria alongside actual results, with a same-facts comparison.

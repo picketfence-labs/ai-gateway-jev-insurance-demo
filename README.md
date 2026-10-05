@@ -2,6 +2,8 @@
 
 This private repository contains an offline-first demo scaffold for a conversational insurance inquiry. The normal LLM agent, scoped MCP tool wrappers, host ledger, native Jev request boundary, and separate LLM supplement are implemented. The default UI uses synthetic fixtures and makes no upstream business API, LLM, MCP, or Jev calls. The live path remains locked unless its server-side mode, approval, UI-enable flag, and required configuration all validate. No live integration has been tested.
 
+**Delivery boundary:** the current UI is a single-inquiry form with a replacement result card, not a multi-turn Chat UI. The live agent processes the current inquiry only. Conversation history, retention of the same target’s recent user turns, message-part rendering, and conversational streaming remain unimplemented. Offline checks and the implemented agent boundaries pass, but the full conversational acceptance contract is not complete.
+
 This demo is not an underwriting, payment eligibility, customer authentication, or service commitment system.
 
 ## Read before changing the demo

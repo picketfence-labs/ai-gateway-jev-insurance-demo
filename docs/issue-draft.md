@@ -34,3 +34,9 @@ The repository now contains the offline UI, synthetic scenarios, projected-ledge
 Use a feature branch and PR after Git/remote approval. The implementation worker does not merge. An independent reviewer checks code and test evidence; the owner performs demo acceptance. Mark unexecuted live work explicitly. Do not automatically close this work item on PR merge.
 
 Before a live follow-up, confirm provider/model/pin, Gateway endpoint and configuration, environment and cleanup, credential delivery, payload destinations, prices, monetary limits, timeouts, and request caps. The proposed 43 LLM generations plus seven Jev attempts is a ceiling proposal, not authorization.
+
+## Current implementation gap
+
+- [ ] Implement and verify multi-turn conversational history for the same target, including the planned recent-user-turn bound and message-part/stream presentation.
+
+The delivered UI is currently single-inquiry with replacement cards. The real tool-agent and separate supplement code exist, but they receive the current inquiry only. Passing offline checks is not completion of the full conversational requirement.

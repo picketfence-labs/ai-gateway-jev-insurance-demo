@@ -46,3 +46,10 @@ Append a dated entry when behavior differs from expectations. Include expectatio
 - Observed: the single-flight entry originally expired after 15 minutes, while each new agent call creates a fresh per-turn attempt registry.
 - Action: keep request IDs, fingerprints, and result promises for the full process lifetime; changed payloads conflict, failures stay consumed, and the 4,096-entry cap fails closed. Snapshot expiration remains independent.
 - Checks: lint, typecheck, tests, secret scan, and production build passed after the change. The focused unit test advances the fake clock by 16 minutes and verifies replay and consumed failures. No live request was made.
+
+## 2026-10-05: Conversation acceptance gap
+
+- Expected: preserve the conversational Chat UI and bounded same-target recent user turns.
+- Observed: the implemented form replaces a single result card; the live agent receives only the current inquiry. No multi-turn history, message-part rendering, or conversation streaming is implemented.
+- Action: record the delivered single-inquiry/agent/decision subset and leave conversational acceptance incomplete. No additional UI implementation is claimed by this handoff.
+- Evidence: `src/app/page.tsx` and `src/lib/gateway-agent.ts`; offline test and browser evidence apply only to the implemented subset.
