@@ -57,7 +57,35 @@ CI runs the same offline checks with live approval disabled. Review exact output
 
 ## Bounded live follow-up, separately approved
 
-Verify the exact runtime/image and source pins, five MCP GET-detail interfaces, projection, and the chosen normal LLM wire format/tool/streaming route. Validate Jev's TypeSafe-native decisions route, JSON-string state, and answer schema with one schema smoke before the six core turns; do not translate Jev requests or responses through ChatCompletion. Record all attempted calls and failures, not just successes.
+### Minimum live preparation inputs
+
+This is a preparation checklist, not live-access approval. Reuse an existing approved non-production environment if one already provides Kong AI Gateway 2.2, the five scoped MCP GET-detail endpoints, and a TypeSafe-native Jev decisions route. If not, stop here and request separate approval for environment provisioning; do not create or configure one as part of this checklist. A `ready` response means only that required configuration passed validation, not that any endpoint, identity, model, or wire contract works.
+
+Minimum wiring to confirm with the environment owner:
+- Route normal LLM requests through the existing Gateway's OpenAI-compatible generation/tool-call path. Gemini is only the current provider candidate; its exact provider, model/version pin, and native tool-loop support are unverified.
+- Point the five MCP clients at existing GET-detail servers for Customer, Product, Application, Claim, and Policy, exposing exactly `get_customer_customers__customer_id__get`, `get_product_products__product_id__get`, `get_application_applications__application_id__get`, `get_claim_claims__claim_id__get`, and `get_policy_policies__policy_id__get`.
+- Route Jev to the existing TypeSafe-native decisions endpoint using its native request/response contract, never by translating through ChatCompletion. The exact AI Gateway 2.2 native route URL/path, forwarding/auth setup, and end-to-end compatibility are not verified; confirm them with the route owner before any smoke.
+- Inject key values through the environment's approved secret-delivery mechanism. Do not put key values, customer data, or populated deployment configuration in this repository, issue, or chat.
+
+Adapter limits affect smoke planning: the current MCP clients are initialized with endpoint URLs only and do not inject HTTP auth headers; MCP initialization/tools discovery may make network requests outside `MCP_TOOL_INVOCATION_BUDGET` and are not covered by `MCP_TIMEOUT_MS`. Do not weaken endpoint access controls to fit this adapter; if MCP request authentication is required, use a separately approved integration change or a compatible approved endpoint. Comparison's zero-business-GET guarantee does not mean zero protocol/network traffic.
+
+The current live validator requires the following names and shapes; it assigns no URL, model, timeout, or budget values:
+- Explicit gates: `DEMO_MODE=live`, `LIVE_ACCESS_APPROVED=true`, and `LIVE_UI_ENABLED=true`. These may only be enabled after separate owner approval; offline remains the default.
+- Normal LLM/Gateway: `AI_GATEWAY_BASE_URL` (HTTP(S) URL without embedded credentials, query, or fragment), `AI_GATEWAY_API_KEY` and `AI_GATEWAY_MODEL` (non-empty), `AI_GATEWAY_TIMEOUT_MS` (positive integer milliseconds), and `AI_GATEWAY_REQUEST_BUDGET` (positive integer process-wide request count).
+- MCP: `MCP_CUSTOMER_URL`, `MCP_PRODUCT_URL`, `MCP_APPLICATION_URL`, `MCP_CLAIM_URL`, `MCP_POLICY_URL` (each HTTP(S), without embedded credentials, query, or fragment), `MCP_TIMEOUT_MS` (positive integer milliseconds), and `MCP_TOOL_INVOCATION_BUDGET` (positive integer process-wide invocation count).
+- Jev: `AI_GATEWAY_JEV_URL` (HTTP(S), without embedded credentials, query, or fragment), `AI_GATEWAY_JEV_API_KEY` and `AI_GATEWAY_JEV_MODEL` (non-empty), `AI_GATEWAY_JEV_TIMEOUT_MS` (positive integer milliseconds), and `AI_GATEWAY_JEV_ATTEMPT_BUDGET` (positive integer process-wide attempt count).
+
+Choose exact timeout and cumulative-budget values only with the environment owner; none are approved or implied here. Per-turn code caps are at most six Phase A Gateway generations, eight MCP invocations (including cache/snapshot calls), one Jev attempt, and one tool-free supplement. The earlier 43 normal LLM generations plus seven Jev attempts are a ceiling proposal for a possible broader test plan—not required calls, a monetary limit, or approval. This plan proposes a native-schema smoke before further tests, but no standalone Jev schema-smoke runner exists; the current live UI request invokes the normal LLM loop, MCP discovery/tools, Jev, and possible supplement as one workflow. The first live smoke could therefore call the full dependency chain: separately approve its method and explicit call maxima/budgets for each dependency. The six core turns are not automatic requirements. Current pricing and any monetary guarantee have not been evaluated.
+
+Before any live follow-up, obtain concise answers to these questions:
+1. Does an approved non-production environment already exist with Gateway 2.2, the five GET-detail MCP servers, and a TypeSafe-native Jev route? If yes, which environment/route owners and non-secret endpoint identifiers should be used? If no, is a separate provisioning plan authorized?
+2. Which exact normal provider, model/version pin, and Gateway route are approved? Gemini is a candidate only; confirm the existing route's tool-call compatibility rather than assuming it.
+3. What exact native Jev route/path, model, and owner-confirmed forwarding/auth contract are approved through Gateway 2.2?
+4. Is one native-schema smoke separately approved? If so, what per-service timeout (milliseconds), per-process Gateway/MCP/Jev budgets, call maxima, environment scope, and monetary ceiling apply? Do not infer these values from 43+7.
+
+No live request is authorized by configuration readiness, this checklist, or an answer to the preparation questions alone. Obtain separate explicit approval for the particular smoke and its bounded call/budget scope before enabling the flags or sending traffic.
+
+Verify the exact runtime/image and source pins, five MCP GET-detail interfaces, projection, and the chosen normal LLM wire format/tool/streaming route. Under the separately approved smoke method, validate Jev's TypeSafe-native decisions route, JSON-string state, and answer schema before any further individually agreed test turns; do not translate Jev requests or responses through ChatCompletion. Record all attempted calls and failures, not just successes.
 
 Core expectations are hypotheses:
 - S1: claim-progress desk; additional-information contact is relevant to the comparison.
