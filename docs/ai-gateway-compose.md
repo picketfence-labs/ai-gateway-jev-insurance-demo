@@ -153,8 +153,44 @@ rejected; `config.balancer.algorithm` requiredness and accepted enum were not
 established, and a missing algorithm was not identified as the 400 cause. Do
 not remove `config.balancer.retries: 0` or `failover_criteria: []` from the Jev
 model without evidence and owner direction.
-No retry, diagnostic POST, MCP Server creation, DP start, or S1/S2/S3 request is
-authorized while this stop remains in effect.
+
+After the 2026-10-06 owner authorization, one diagnostic model-create POST was
+attempted at 08:34 JST using the reconstructed, secret-free request body
+SHA-256 `3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791`.
+It referenced the existing TypeSafe provider; the upstream `JEV_API_KEY` value
+was not serialized into this request. The caller raised `URLError` without an
+HTTP status. Its inner reason was not retained, so it is unknown whether the
+request bytes reached Konnect. A subsequent read-only GET returned HTTP 200 and
+still listed only `insurance-normal`; `insurance-jev-decisions` remains absent.
+No POST retry was made. Do not retry blindly; MCP Server creation, DP start, and
+S1/S2/S3 traffic remain stopped pending resolution.
+
+The diagnostic return did not meet the agreed acceptance condition: the author
+discarded `URLError.reason`, repeating the earlier loss of the 400 response
+classification. The Manager authored `scripts/konnect-diagnostic.py` as a
+bounded replacement. It retains only allowlisted field/code and fixed message
+categories or transport type/numeric code, closes error response streams, and
+never emits exception strings, headers, raw bodies or credentials. Run
+`python3 scripts/konnect-diagnostic.py --self-test` for four offline mock tests;
+`--get-models` is read-only and requires an already supplied `KONNECT_TOKEN`.
+TLS certificate/hostname verification remains enabled and redirects are refused.
+There is no CLI POST mode; another POST requires owner reauthorization plus
+read-only duplicate avoidance. Four tests are mocked; separately, the Manager
+ran one real read-only GET through this new client on 2026-10-06: HTTP 200 with
+only `insurance-normal`, with certificate/hostname verification enabled. This
+is not proof of Jev registration. A real GET 200 does not prove that the failed POST
+was pre-HTTP or that its cause was TLS. Provider traffic and expense evidence
+remain unavailable; no model/Jev/MCP/insurance calls or DP launch occurred.
+The classifier recognizes only reviewed top-level `code`, `message` and
+dictionary `fields` paths. Native error-envelope conformance has not been
+established; nested `errors`, array `details` or unknown paths may yield only
+`http_error`. It guarantees bounded sanitization, not a diagnosis of the 400.
+The closed code allowlist includes the generic lowercase codes documented in
+[Konnect API Errors](https://developer.konghq.com/api/errors/); that generic
+reference does not establish the AI Gateway model-create error envelope.
+Before proposing another POST, verify the known native error shape read-only
+and extend only proven field paths if necessary; do not infer a payload fix
+from an unclassified response.
 
 The three inbound key values are kept only in ignored `.env.live.local`
 (mode `0600`); the new local DP private key is in ignored
