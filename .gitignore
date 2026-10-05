@@ -1,0 +1,32 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+secrets/
+certs/
+*.pem
+*.key
+*.p12
+*.pfx
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Dependencies and generated output
+node_modules/
+.next/
+dist/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+__pycache__/
+.venv/
+graphify-out/
+
+# Runtime traces can contain submitted text or provider metadata
+*.log
+runtime-data/
+.DS_Store
