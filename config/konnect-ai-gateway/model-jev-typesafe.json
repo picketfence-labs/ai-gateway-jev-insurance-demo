@@ -1,0 +1,24 @@
+{
+  "display_name": "Insurance Demo Jev Native Decisions (owner review)",
+  "name": "insurance-jev-decisions",
+  "type": "model",
+  "enabled": false,
+  "capabilities": ["decisions"],
+  "formats": [{ "type": "typesafe" }],
+  "policies": [],
+  "access": {
+    "auth_strategies": ["OWNER_CONFIRM_BEARER_COMPATIBLE_JEV_AUTH_STRATEGY"]
+  },
+  "targets": [
+    {
+      "name": "jev-latest",
+      "provider": "insurance-demo-typesafe",
+      "config": { "type": "typesafe" }
+    }
+  ],
+  "config": {
+    "route": { "paths": ["/jev"] },
+    "logging": { "payloads": false },
+    "balancer": { "retries": 0, "failover_criteria": [] }
+  }
+}

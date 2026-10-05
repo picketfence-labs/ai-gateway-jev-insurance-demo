@@ -1,0 +1,22 @@
+{
+  "display_name": "Insurance Demo Application MCP (owner review)",
+  "name": "insurance-demo-application-mcp",
+  "type": "conversion-listener",
+  "enabled": false,
+  "access": { "auth_strategies": ["insurance-demo-mcp-key-auth"] },
+  "config": {
+    "url": "http://application-api:8000",
+    "route": { "paths": ["/mcp/application"] },
+    "logging": { "payloads": false }
+  },
+  "tools": [
+    {
+      "name": "get_application_applications__application_id__get",
+      "description": "Read one synthetic application detail for the current insurance case.",
+      "method": "GET",
+      "path": "/mcp/application/applications/{application_id}",
+      "annotations": { "title": "Get application detail", "readOnlyHint": true, "destructiveHint": false },
+      "parameters": [{ "name": "application_id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    }
+  ]
+}

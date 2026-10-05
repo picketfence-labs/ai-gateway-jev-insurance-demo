@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createMCPClient } from "@ai-sdk/mcp";
 import { TurnLedger, createComparisonLedger, executeScopedMcpCall, operationIds, readSnapshotOnly } from "@/lib/ledger";
 import { projectApiRecord } from "@/lib/projection";
 import { buildNativeRequest, AttemptRegistry, executeAtMostOnce, parseNativeDecision, questions } from "@/lib/jev";
@@ -14,6 +15,9 @@ import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
 import { caseLabels, choiceLabel, displayFactValue, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
+
+vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn() }));
+
 
 function completeS1() {
   const ledger = new TurnLedger("S1");
@@ -64,6 +68,29 @@ describe("scope and host ledger", () => {
     await expect(executeScopedMcpCall(ledger, operationIds.claim, { claim_id: "CLM-999999" }, send)).rejects.toThrow(/not discovered/);
     expect(send).not.toHaveBeenCalled();
     expect(ledger.uniqueSuccessfulGetCount).toBe(0);
+  });
+
+  it("authorizes Kong path-prefixed MCP IDs while preserving the original tool arguments", async () => {
+    const ledger = new TurnLedger("S1");
+    const args = { path_claim_id: "CLM-000015" };
+    const send = vi.fn(async () => scenarios.S1.facts.claim);
+    const result = await executeScopedMcpCall(ledger, operationIds.claim, args, send);
+    expect(send).toHaveBeenCalledOnce();
+    expect(args).toEqual({ path_claim_id: "CLM-000015" });
+    expect(result).toMatchObject({ data: { claim_id: "CLM-000015" } });
+    for (const invalid of [
+      { path_claim_id: "CLM-000015", claim_id: "CLM-000015" },
+      { path_claim_id: "CLM-000015", extra: "x" },
+      { path_claim_id: "CLM-999999" },
+      { path_claim_id: "" },
+      { path_claim_id: 15 },
+      { path_customer_id: "CUS-000011" },
+      { PATH_claim_id: "CLM-000015" },
+    ]) {
+      const rejected = vi.fn(async () => scenarios.S1.facts.claim);
+      await expect(executeScopedMcpCall(ledger, operationIds.claim, invalid, rejected)).rejects.toThrow();
+      expect(rejected).not.toHaveBeenCalled();
+    }
   });
 
   it("redacts raw MCP exceptions so canaries cannot reach SDK tool errors or Jev", async () => {
@@ -260,7 +287,7 @@ describe("offline and live gates", () => {
     const env = {
       LIVE_ACCESS_APPROVED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
       AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "1",
-      MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       AI_GATEWAY_JEV_API_KEY: "present",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
@@ -272,11 +299,13 @@ describe("offline and live gates", () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
       AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2",
-      MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
 } as unknown as NodeJS.ProcessEnv;
     const agent = vi.fn(async () => ({ status: "mocked" }));
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(30) }, { ...env, MCP_API_KEY: undefined }, agent)).toMatchObject({ status: 503 });
+    expect(agent).not.toHaveBeenCalled();
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(1) }, { ...env, LIVE_ACCESS_APPROVED: "false" }, agent)).toMatchObject({ status: 503 });
     expect(agent).not.toHaveBeenCalled();
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(2) }, env, agent)).toEqual({ status: 200, payload: { status: "mocked" } });
@@ -313,7 +342,7 @@ describe("offline and live gates", () => {
   it("validates and forwards only bounded text history to the live agent", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
     } as unknown as NodeJS.ProcessEnv;
@@ -326,10 +355,54 @@ describe("offline and live gates", () => {
     expect(agent).toHaveBeenCalledTimes(1);
   });
 
+  it("sends the separate fixed apikey header to all five MCP endpoints without surfacing it", async () => {
+    const env: Record<string, string> = {
+      DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true",
+      AI_GATEWAY_BASE_URL: "https://example.invalid/v1/insurance-normal", AI_GATEWAY_API_KEY: "normal-dummy",
+      AI_GATEWAY_MODEL: "insurance-normal", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "7",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev/v1/systemone", AI_GATEWAY_JEV_API_KEY: "jev-dummy",
+      AI_GATEWAY_JEV_MODEL: "insurance-jev-decisions", AI_GATEWAY_JEV_TIMEOUT_MS: "10000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      MCP_API_KEY: "synthetic-mcp-key-not-credential", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      MCP_CUSTOMER_URL: "https://example.invalid/mcp/customer", MCP_PRODUCT_URL: "https://example.invalid/mcp/product",
+      MCP_APPLICATION_URL: "https://example.invalid/mcp/application", MCP_CLAIM_URL: "https://example.invalid/mcp/claim",
+      MCP_POLICY_URL: "https://example.invalid/mcp/policy",
+    };
+    const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, env);
+    let discoveryCount = 0;
+    const clientFactory = vi.mocked(createMCPClient);
+    clientFactory.mockImplementation(async () => ({
+      tools: async () => {
+        discoveryCount += 1;
+        if (discoveryCount === 5) throw new Error(`mock discovery stop ${process.env.MCP_API_KEY}`);
+        return Object.fromEntries(Object.values(operationIds).map((id) => [id, { execute: vi.fn() }]));
+      },
+      close: vi.fn(),
+    }) as never);
+    const consoleError = vi.spyOn(console, "error");
+    try {
+      const response = await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic only", requestId: requestId(31) }, process.env);
+      expect(response).toMatchObject({ status: 502, payload: { error: "The live agent failed safely. No transport details were returned." } });
+      expect(JSON.stringify(response)).not.toContain(env.MCP_API_KEY);
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(clientFactory).toHaveBeenCalledTimes(5);
+      for (const [options] of clientFactory.mock.calls) {
+        expect(options).toMatchObject({ transport: { type: "http", headers: { apikey: env.MCP_API_KEY } } });
+      }
+    } finally {
+      consoleError.mockRestore();
+      clientFactory.mockReset();
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("replays same live request ID once and rejects payload reuse without another agent call", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
     } as unknown as NodeJS.ProcessEnv;

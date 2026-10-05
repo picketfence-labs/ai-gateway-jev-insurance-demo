@@ -1,0 +1,36 @@
+{
+  "display_name": "Insurance Demo Normal LLM (owner review)",
+  "name": "insurance-normal",
+  "type": "model",
+  "enabled": false,
+  "capabilities": ["generate"],
+  "formats": [{ "type": "openai" }],
+  "policies": [],
+  "access": {
+    "auth_strategies": ["OWNER_CONFIRM_BEARER_COMPATIBLE_NORMAL_AUTH_STRATEGY"]
+  },
+  "targets": [
+    {
+      "name": "gemini-3.5-flash",
+      "provider": "insurance-demo-gemini",
+      "config": { "type": "gemini" }
+    },
+    {
+      "name": "gpt-4o",
+      "provider": "insurance-demo-openai",
+      "config": { "type": "openai" }
+    }
+  ],
+  "config": {
+    "route": {
+      "paths": ["/v1/insurance-normal"],
+      "model": { "body_param": "model", "values": ["insurance-normal"] }
+    },
+    "logging": { "payloads": false },
+    "balancer": {
+      "algorithm": "round-robin",
+      "retries": 0,
+      "failover_criteria": []
+    }
+  }
+}

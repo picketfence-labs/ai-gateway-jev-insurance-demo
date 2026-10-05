@@ -34,8 +34,12 @@ export class TurnLedger {
     if (!args || typeof args !== "object" || Array.isArray(args)) throw new ContractError("Invalid tool arguments");
     const arg = args as Record<string, unknown>;
     const allowedArg = `${entity}_id`;
-    if (Object.keys(arg).length !== 1 || !Object.hasOwn(arg, allowedArg)) throw new ContractError("Tool arguments must contain only the scoped detail ID");
-    const id = this.authorize(entity, arg[allowedArg]);
+    const gatewayArg = `path_${allowedArg}`;
+    const keys = Object.keys(arg);
+    if (keys.length !== 1 || (keys[0] !== allowedArg && keys[0] !== gatewayArg) || !Object.hasOwn(arg, keys[0])) {
+      throw new ContractError("Tool arguments must contain only the scoped detail ID");
+    }
+    const id = this.authorize(entity, arg[keys[0]]);
     return { entity, id };
   }
 

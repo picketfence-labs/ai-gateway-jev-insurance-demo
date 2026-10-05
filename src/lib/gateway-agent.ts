@@ -80,7 +80,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
     const tools: Record<string, unknown> = {};
     for (const entity of ["customer", "product", "application", "claim", "policy"] as Entity[]) {
       const key = `mcp_${entity}`;
-      const client = await createMCPClient({ transport: { type: "http", url: config.mcpUrls[entity] } } as never);
+      const client = await createMCPClient({ transport: { type: "http", url: config.mcpUrls[entity], headers: { apikey: config.mcpApiKey } } } as never);
       clients.push(client as unknown as { close?: () => Promise<void> | void });
       const available = await (client as unknown as { tools: () => Promise<Record<string, unknown>> }).tools();
       const allowedName = operationIds[entity];

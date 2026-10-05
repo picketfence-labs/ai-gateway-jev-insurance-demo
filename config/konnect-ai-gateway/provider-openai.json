@@ -1,0 +1,16 @@
+{
+  "display_name": "Insurance Demo OpenAI Provider (owner review)",
+  "name": "insurance-demo-openai",
+  "type": "openai",
+  "config": {
+    "auth": {
+      "type": "basic",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer REPLACE_WITH_OWNER_MANAGED_OPENAI_CREDENTIAL"
+        }
+      ]
+    }
+  }
+}

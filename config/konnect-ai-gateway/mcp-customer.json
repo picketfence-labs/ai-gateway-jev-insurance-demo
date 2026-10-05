@@ -1,0 +1,22 @@
+{
+  "display_name": "Insurance Demo Customer MCP (owner review)",
+  "name": "insurance-demo-customer-mcp",
+  "type": "conversion-listener",
+  "enabled": false,
+  "access": { "auth_strategies": ["insurance-demo-mcp-key-auth"] },
+  "config": {
+    "url": "http://customer-api:8000",
+    "route": { "paths": ["/mcp/customer"] },
+    "logging": { "payloads": false }
+  },
+  "tools": [
+    {
+      "name": "get_customer_customers__customer_id__get",
+      "description": "Read one synthetic customer detail for the current insurance case.",
+      "method": "GET",
+      "path": "/mcp/customer/customers/{customer_id}",
+      "annotations": { "title": "Get customer detail", "readOnlyHint": true, "destructiveHint": false },
+      "parameters": [{ "name": "customer_id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    }
+  ]
+}
