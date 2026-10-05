@@ -11,12 +11,64 @@ import { dispatchLivePayload } from "@/app/api/live/route";
 import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
 import { runLiveTurn } from "@/lib/gateway-agent";
+import { createGatewayApiKeyFetch } from "@/lib/gateway-auth";
 import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
 import { caseLabels, choiceLabel, displayFactValue, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
 
 vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn() }));
+
+describe("inbound AI Gateway API-key transport", () => {
+  it("replaces Authorization with the fixed apikey header for string, URL, and Request inputs", async () => {
+    const route = "https://gateway.example.test/v1/insurance-normal/chat/completions";
+    const seen: Request[] = [];
+    const transport = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Request(input, init));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const guarded = createGatewayApiKeyFetch(route, "inbound-canary", transport);
+    const inputs: Array<[RequestInfo | URL, RequestInit?]> = [
+      [route, { method: "POST", headers: { authorization: "Bearer sdk-generated", apikey: "caller-override" } }],
+      [new URL(route), { method: "POST", headers: { authorization: "Bearer url-input" } }],
+      [new Request(route, { method: "POST", headers: { authorization: "Bearer request-input" } })],
+    ];
+
+    for (const [input, init] of inputs) await guarded(input, init);
+
+    expect(seen).toHaveLength(3);
+    for (const request of seen) {
+      expect(request.headers.get("authorization")).toBeNull();
+      expect(request.headers.get("apikey")).toBe("inbound-canary");
+      expect(request.redirect).toBe("error");
+      expect(request.method).toBe("POST");
+    }
+  });
+
+  it("rejects another origin, another path, and non-POST calls before sending the key", async () => {
+    const transport = vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
+    const guarded = createGatewayApiKeyFetch("https://gateway.example.test/jev/v1/systemone", "inbound-canary", transport);
+
+    await expect(guarded("https://elsewhere.example.test/jev/v1/systemone", { method: "POST" })).rejects.toThrow("Gateway request target is not allowed");
+    await expect(guarded("https://gateway.example.test/jev/v1/other", { method: "POST" })).rejects.toThrow("Gateway request target is not allowed");
+    await expect(guarded("https://gateway.example.test/jev/v1/systemone", { method: "GET" })).rejects.toThrow("Gateway request target is not allowed");
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("refuses redirects rather than following a Location with the key", async () => {
+    let sent: Request | undefined;
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent = new Request(input, init);
+      return new Response(null, { status: 302, headers: { location: "https://elsewhere.example.test/collect" } });
+    }) as unknown as typeof fetch;
+    const guarded = createGatewayApiKeyFetch("https://gateway.example.test/jev/v1/systemone", "inbound-canary", transport);
+
+    await expect(guarded("https://gateway.example.test/jev/v1/systemone", { method: "POST" })).rejects.toThrow("Gateway redirect refused");
+    expect(sent?.redirect).toBe("error");
+    expect(sent?.headers.get("apikey")).toBe("inbound-canary");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+});
 
 
 function completeS1() {

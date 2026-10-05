@@ -4,6 +4,7 @@ import { generateText, stepCountIs, type ToolSet } from "ai";
 import { AttemptRegistry, executeAtMostOnce, buildNativeRequest, parseNativeDecision } from "./jev";
 import { TurnLedger, executeScopedMcpCall, operationIds } from "./ledger";
 import { ProcessUsageBudget, TurnLimits, validateLiveConfig } from "./live-config";
+import { createGatewayApiKeyFetch } from "./gateway-auth";
 import { ContractError } from "./projection";
 import { runDecisionPhases } from "./orchestration";
 import { isCaseId, scenarios, type CaseId, type Entity, type ProjectedFacts } from "./scenarios";
@@ -30,11 +31,16 @@ function extractMcpRecord(result: unknown): unknown {
 }
 
 function gatewayModel(config: NonNullable<Extract<ReturnType<typeof validateLiveConfig>, { ok: true }>['config']>, requests: { count: number }, turnLimits: TurnLimits, phase: "agent" | "supplement") {
+  const base = new URL(config.gatewayBaseUrl);
+  const routeUrl = `${base.origin}${base.pathname.replace(/\/+$/, "")}/chat/completions`;
+  const gatewayFetch = createGatewayApiKeyFetch(routeUrl, config.gatewayApiKey, async (input, init) =>
+    fetch(input, { ...init, signal: timeoutSignal(config.gatewayTimeoutMs) }),
+  );
   const timeoutFetch: typeof fetch = async (input, init) => {
     if (!turnLimits.reserveGeneration(phase)) throw new Error("Per-turn Gateway generation limit reached");
     if (!processBudget.reserveGatewayCall()) throw new Error("Gateway request budget exhausted");
     requests.count += 1;
-    return fetch(input, { ...init, signal: timeoutSignal(config.gatewayTimeoutMs) });
+    return gatewayFetch(input, init);
   };
   const provider = createOpenAI({ baseURL: config.gatewayBaseUrl, apiKey: config.gatewayApiKey, fetch: timeoutFetch });
   return provider.chat(config.gatewayModel);
@@ -42,11 +48,13 @@ function gatewayModel(config: NonNullable<Extract<ReturnType<typeof validateLive
 
 async function callNativeJev(config: NonNullable<Extract<ReturnType<typeof validateLiveConfig>, { ok: true }>['config']>, body: ReturnType<typeof buildNativeRequest>) {
   if (!processBudget.reserveJevAttempt()) throw new Error("Jev attempt budget exhausted");
-  const response = await fetch(config.jevUrl, {
+  const gatewayFetch = createGatewayApiKeyFetch(config.jevUrl, config.jevApiKey, async (input, init) =>
+    fetch(input, { ...init, signal: timeoutSignal(config.jevTimeoutMs) }),
+  );
+  const response = await gatewayFetch(config.jevUrl, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${config.jevApiKey}` },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: timeoutSignal(config.jevTimeoutMs),
   });
   if (!response.ok) throw new Error("Native Jev request failed");
   return response.json() as Promise<unknown>;
