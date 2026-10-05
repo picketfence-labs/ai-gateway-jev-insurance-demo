@@ -1,0 +1,16 @@
+FROM python:3.13-slim
+
+ARG SERVICE
+WORKDIR /app
+
+RUN case "$SERVICE" in product|customer|application|policy|claim) ;; *) echo "Unsupported SERVICE: $SERVICE" >&2; exit 1 ;; esac
+
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY common ./common
+COPY services/${SERVICE}/app ./app
+COPY data/seed/${SERVICE}.json ./data/seed.json
+
+ENV SEED_FILE=/app/data/seed.json
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

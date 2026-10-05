@@ -11,8 +11,31 @@ This demo is not an underwriting, payment eligibility, customer authentication, 
 1. [Design brief](docs/design-brief.md) describes scope, scenarios, and trust boundaries.
 2. [Decision record](docs/decisions/0001-agent-and-host-decision-boundary.md) records the agent and host responsibilities.
 3. [Test plan](docs/test-plan.md) lists implementation checks, live-only evidence, and [minimum live preparation inputs](docs/test-plan.md#minimum-live-preparation-inputs); preparation is not live-access approval.
+
 4. [Work item #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1) is the approved offline implementation contract; see the [local copy](docs/issue-draft.md).
 5. [Troubleshooting log](docs/troubleshooting-log.md) records implementation observations and check evidence.
+
+## Local Compose scaffold
+
+`compose.yaml` describes the local AI Gateway 2.2 DP, this UI app, and five
+internal-only insurance API containers. It defaults to offline mode and does
+not create Konnect AI Model/provider entities or enable live access. Read the
+[Compose owner-input and safety notes](docs/ai-gateway-compose.md) before
+preparing a local `.env`. The DP hosts/certificates, model aliases and routes,
+provider/auth setup, Jev native endpoint, and MCP routes remain owner TODOs.
+
+The only Compose check performed for this scaffold is the non-daemon static
+configuration validation below; it does not build or start containers and does
+not verify Konnect or upstream connectivity:
+
+```sh
+docker compose --env-file .env.example config --quiet
+```
+
+The existing GitHub Actions workflow runs on pushes and pull requests with
+Node.js 22 and live approval flags disabled; it runs lint, typecheck, 28 unit
+tests, secret scanning, and a production build. These checks do not validate
+the Compose images or live integrations; see [test plan](docs/test-plan.md).
 
 ## Run the offline UI
 
@@ -63,6 +86,6 @@ Latest checks before the Japanese UI delta passed: lint, typecheck, 27 unit test
 - The live agent may receive only the most recent completed same-case live user/assistant turn plus the current inquiry (two user turns total). This prior dialogue is unverified context, is length-checked, and cannot satisfy facts; raw tool payloads are never placed in conversation history. Case or mode changes clear the chat, selection, snapshots, and results.
 - UI tool receipts expose only allowlisted tool name, safe status, source, and count. Offline tool plans are explicitly not executed. The UI does not implement streaming.
 
-The normal LLM route through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. Gemini is the first provider candidate, but the provider, model, pin, Gateway configuration, and end-to-end tool behavior remain unverified. Live calls, credentials, Konnect changes, paid calls, and public hosting are not approved.
+The normal LLM route through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. One normal AI Model with Gemini and GPT/OpenAI targets is planned; exact model IDs, routing policy, provider credentials, Gateway configuration, and end-to-end tool behavior remain unverified owner inputs. Live calls, credentials, Konnect changes, paid calls, and public hosting are not approved.
 
 Public references: [Chat UI](https://github.com/picketfence-labs/konnect-code-mode-mcp), [insurance APIs](https://github.com/picketfence-labs/kong-api-bundle-insurance).
