@@ -10,7 +10,7 @@ This demo is not an underwriting, payment eligibility, customer authentication, 
 
 1. [Design brief](docs/design-brief.md) describes scope, scenarios, and trust boundaries.
 2. [Decision record](docs/decisions/0001-agent-and-host-decision-boundary.md) records the agent and host responsibilities.
-3. [Test plan](docs/test-plan.md) lists implementation checks and live-only evidence.
+3. [Test plan](docs/test-plan.md) lists implementation checks, live-only evidence, and [minimum live preparation inputs](docs/test-plan.md#minimum-live-preparation-inputs); preparation is not live-access approval.
 4. [Work item #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1) is the approved offline implementation contract; see the [local copy](docs/issue-draft.md).
 5. [Troubleshooting log](docs/troubleshooting-log.md) records implementation observations and check evidence.
 
