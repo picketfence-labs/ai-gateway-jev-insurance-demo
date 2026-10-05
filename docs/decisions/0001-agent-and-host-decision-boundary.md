@@ -1,6 +1,6 @@
 # ADR 0001: Keep agent tool selection separate from host decisions
 
-Date: 2026-10-05. Status: accepted design; not implemented.
+Date: 2026-10-05. Status: accepted; offline implementation scaffold added, independent review pending.
 
 ## Context
 
@@ -24,8 +24,10 @@ Do not silently complete missing tool calls for the agent. Do not treat Jev as a
 
 There are two projections: IDs needed for agent navigation, and smaller ID-free Jev facts. Tool/step limits, retry prevention, and leakage tests are necessary. The normal LLM route through Kong AI Gateway 2.2 is approved; Gemini is the first provider candidate, but provider/model/pin, SDK wire format, and runtime behavior remain unverified. Direct provider calls are out of scope. Offline implementation approval does not authorize live calls or credential access. Additional scenarios can reuse these boundaries.
 
+The implementation keeps the UI fixture transport separate from the live SDK adapter. Live dispatch requires explicit server mode, approval, UI-enable flags, and complete budgets and endpoint configuration. The live path accepts a UUIDv4 request ID; the process-local registry replays identical in-flight or completed requests and rejects changed input for a reserved ID. Request results and comparison snapshots expire in process memory and do not provide cross-restart or multi-instance guarantees. Jev questions use a native named map and JSON-string state. The response parser requires every candidate probability key and native usage fields. Offline tests use mock transports; this does not validate a live contract exchange.
+
 ## Expected versus observed
 
-Expected: preserve the simple Chat UI experience with a typed decision card. Observed: documentation review only; no implementation, network, model, or UI tests have run.
+Expected: preserve a simple Chat UI with distinct user statement, projected facts, actual Jev card, and tool-free LLM supplement. Observed: an offline UI and mocked contract tests exist; independent review and browser smoke remain pending. No upstream request, model, MCP server, or Jev endpoint has been tested.
 
 Related: [design brief](../design-brief.md), [test plan](../test-plan.md).

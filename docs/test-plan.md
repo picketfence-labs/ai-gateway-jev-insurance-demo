@@ -1,6 +1,6 @@
 # Test plan
 
-Status: plan only. No test code, commands, dependencies, or CI has been created or executed.
+Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Previous chat/history checks and browser smoke passed; current Japanese UI display checks pass with 28 unit tests and zero secret-scan findings. Independent localization delta review and Japanese localhost confirmation passed; see [browser evidence](evidence/browser-smoke.md). The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
 
 ## Offline acceptance before live access
 
@@ -11,15 +11,49 @@ Status: plan only. No test code, commands, dependencies, or CI has been created 
 | Complete ledger | No calls, partial sets, 404, type mismatch, omitted fields, conflicting references | Jev call count zero; LLM text cannot supply missing facts |
 | Raw customer boundary | Canary fields in customer raw response, errors, logs, streams | No canaries in SDK-visible results, Jev payload, logs, UI, or persisted evidence |
 | Field semantics | Paid amount null, missing versus null, string status, product versus policy riders | No zero substitution, fabricated enum, or rider inference |
-| Jev contract | Missing answer key, wrong Choice, nonfinite/out-of-range score, invalid probabilities/confidence | Contract error; retain safe raw response; never synthesize success |
-| Probability diagnostics | Rounded probability sum differs from one | Warning without normalization or confidence replacement |
-| One attempt | Double click, redraw, timeout, 4xx/5xx, cancellation | Reservation before send, retry zero, failure consumes attempt |
+| Jev contract | Missing answer key, wrong Choice, nonfinite/out-of-range score, invalid probabilities/confidence | Contract error; do not forward raw response or synthesize success |
+| Jev probability maps | Empty, missing candidate, unknown candidate, or incomplete Score map | Require every allowed candidate key, preserve values, warn above `1e-6` drift without normalization |
+| One attempt and replay | Duplicate request ID concurrently, after timeout, or after 15 minutes; reuse ID with changed payload | One process-local agent/Jev run, cached response replay for identical input, conflict for changed input, failure stays consumed until process restart |
 | Comparison | Parent snapshot hit/miss, reordered and duplicate tool calls | Visible snapshot source, fixed facts/rubric, no live fallback |
 | Phase C | Success and decision failure | Tools disabled; supplement cannot overwrite cards; failure skips supplement |
-| UI status | Pending/error/completed and old results | No stale success shown as current; fixtures labeled offline |
+| UI status and routing | Offline/live mode selection, readiness locked/ready, pending/error/completed | Offline default, no config values exposed, distinct routes, same request ID on unchanged retry, fixtures labeled offline |
+| Bounded conversation context | One prior same-case live turn plus current inquiry; cross-case/mode, extra payload, or oversized input | At most two user turns total; text-only and length-checked before LLM; prior conversation explicitly unverified and cannot supply facts; Jev receives current inquiry only |
+| Chat/evidence state | Append assistant response and supplement, select historical turn, change case or mode | Turns append; only selected turn's four evidence sections render; case/mode change clears chat, snapshot, selection and results; fixture narrative/tool plan is labeled not model output/not executed; safe tool status excludes raw data/errors |
+| Evidence separation | User statement, projected facts, host rubric/version, Jev result, LLM supplement | Four evidence sections stay distinct; show the ordered priority scale and keep the supplement separate |
+| Japanese display mapping | Known/unknown Jev choices, score legend, confidence, probability, status/source, rubric, and all three fixture cases | Japanese explanatory text only; preserve underlying contract/decision/facts exactly; confidence is not correctness; unknown enum/status shows an unsupported-value label with raw value; optional collapsed JSON keeps original English keys/values |
 | Limits | Tool/step/text/byte/output bounds and partial ledgers | Stop explicitly without silent truncation or hidden retrieval |
 
-Future layout: `tests/unit/`, `tests/contracts/`, `tests/fixtures/`, and `tests/e2e/`. Use synthetic fixtures and mocked transport; remove secrets and personal fields before storing evidence. Add actual command names with the chosen package manager during implementation.
+Implemented test file: `tests/unit/contracts.test.ts`. It uses synthetic fixtures and mocks; it does not make upstream requests. Realtime streaming and message-part rendering are not implemented. Keep credentials and real customer fields out of test data and evidence.
+
+## Local checks
+
+Run these commands from the repository root with Node.js 22. Set `NEXT_TELEMETRY_DISABLED=1` for the production build.
+
+```sh
+npm ci --legacy-peer-deps --no-audit --no-fund
+```
+
+```sh
+npm run lint
+```
+
+```sh
+npm run typecheck
+```
+
+```sh
+npm test
+```
+
+```sh
+npm run secret-scan
+```
+
+```sh
+NEXT_TELEMETRY_DISABLED=1 npm run build
+```
+
+CI runs the same offline checks with live approval disabled. Review exact output in the troubleshooting log. Passing these checks does not validate the live provider, Gateway, MCP, native Jev, identity, budget, or timeout behavior.
 
 ## Bounded live follow-up, separately approved
 
@@ -32,8 +66,8 @@ Core expectations are hypotheses:
 
 Preserve actual outputs when hypotheses fail. Report transport success and recommendation quality separately. A score change, desk change, calibrated confidence, or perfect answer rate is not required or guaranteed.
 
-The proposed combined ceiling is 43 normal LLM generations and seven Jev attempts, single-flight and no retries. Monetary caps, current pricing, exact model/SDK support, timeout enforcement, and environment changes need approval first. No live request is authorized by this plan.
+The earlier combined proposal of 43 normal LLM generations and seven Jev attempts is not a live budget or approval. The code requires explicit per-process Gateway/MCP/Jev budgets and caps a turn at six Phase A generations, eight MCP invocations, and one tool-free supplement. The single-flight registry is process-local, retains request IDs until process restart, and fails closed at its 4,096-entry cap. Monetary caps, current pricing, model/SDK support, timeout behavior, and environment changes remain unverified. No live request is authorized by this plan.
 
 ## Completion evidence
 
-Attach exact source revision, executed commands, stdout/stderr or test reports, sanitizer checks, screenshots of all four evidence sections, actual request/result correspondence, call counts, and unverified items. Request independent technical review, then owner acceptance. A plan or an offline fixture is not live evidence.
+Attach the source revision, exact commands, output and test counts, secret-scan result, UI evidence, and unverified items. Request independent technical review, then owner acceptance. A plan or an offline fixture is not live evidence.

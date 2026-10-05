@@ -25,8 +25,18 @@ Implement the adopted [design brief](https://github.com/picketfence-labs/ai-gate
 - [ ] Safe example configuration with placeholders only; no credentials, environment-specific IDs, or machine paths.
 - [ ] Troubleshooting entries, implementation ADR changes, and a technical report linking commands and raw evidence.
 
+## Current implementation boundary
+
+The repository now contains the offline UI, synthetic scenarios, projected-ledger contracts, a gated normal-LLM/MCP/native-Jev adapter, process-local comparison snapshots and request replay protection, unit tests, and offline CI. The live readiness check exposes only a status; its route remains locked by default. The acceptance boxes above remain unchecked until independent review and owner acceptance. No live model, business API, or Jev request has been made.
+
 ## Completion and review
 
 Use a feature branch and PR after Git/remote approval. The implementation worker does not merge. An independent reviewer checks code and test evidence; the owner performs demo acceptance. Mark unexecuted live work explicitly. Do not automatically close this work item on PR merge.
 
 Before a live follow-up, confirm provider/model/pin, Gateway endpoint and configuration, environment and cleanup, credential delivery, payload destinations, prices, monetary limits, timeouts, and request caps. The proposed 43 LLM generations plus seven Jev attempts is a ceiling proposal, not authorization.
+
+## Current implementation gap
+
+- [ ] Implement and verify realtime conversational streaming and message-part presentation.
+
+The UI now appends submitted inquiries and assistant reply/supplement text, and evidence is selected per turn rather than mixing historical cards. For live requests, the normal agent may receive at most one previous completed same-case turn plus the current inquiry (two user turns total), as unverified text-only context; Jev receives only the current inquiry and the current-turn ledger. Case/mode changes reset conversation and evidence state. Fixture narratives and tool plans are labeled as not model output/not executed. Safe UI tool receipts contain only allowlisted name, status, source, and count. Realtime streaming/message-part presentation remains unimplemented; no live calls or end-to-end connections are verified. Prior partial-completion notes remain in the troubleshooting log.
