@@ -53,3 +53,10 @@ Append a dated entry when behavior differs from expectations. Include expectatio
 - Observed: the implemented form replaces a single result card; the live agent receives only the current inquiry. No multi-turn history, message-part rendering, or conversation streaming is implemented.
 - Action: record the delivered single-inquiry/agent/decision subset and leave conversational acceptance incomplete. No additional UI implementation is claimed by this handoff.
 - Evidence: `src/app/page.tsx` and `src/lib/gateway-agent.ts`; offline test and browser evidence apply only to the implemented subset.
+
+## 2026-10-05: Bounded chat history implementation delta
+
+- Expected: append conversation turns, keep evidence isolated to a selected turn, and provide the normal live agent only a small same-case text history without treating it as verified facts.
+- Observed: the UI now appends each inquiry and labeled normal-agent/fixture response, displays allowlisted tool status only, and renders four evidence sections for the selected turn. A live request can include at most one previous same-case live user/assistant turn plus the current inquiry; length and schema validation occur before Gateway use. Case or mode changes clear conversation and evidence state. Jev still receives only the current inquiry with facts derived solely from the current-turn ledger. Offline narratives and tool plans are fixture-labeled and not executed.
+- Checks: lint, typecheck, 27 mocked unit tests, secret scan (37 files, 0 findings), production build, and `git diff --check` pass. Independent delta review passed (the separate reviewer reran 27 tests and typecheck). Chat-specific localhost browser checks passed for two-turn append, earlier-turn evidence selection, case reset, and in-flight switching controls; see [browser evidence](evidence/browser-smoke.md). No live request was made. Realtime streaming and message-part rendering remain unimplemented.
+- Evidence: `src/lib/conversation.ts`, `src/lib/chat-state.ts`, `src/app/page.tsx`, and `tests/unit/contracts.test.ts`.

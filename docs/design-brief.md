@@ -1,10 +1,10 @@
 # Design brief
 
-Status: offline implementation scaffold with a separate live adapter boundary. The UI defaults to synthetic fixtures. Local lint, typecheck, 23 unit tests, secret scan, and production build pass; independent review and browser smoke passed. No live connection, model, MCP server, or Jev request has been tested. Date: 2026-10-05.
+Status: offline implementation with a separate live adapter boundary. The UI defaults to synthetic fixtures and appends chat turns with selectable per-turn evidence. Local lint, typecheck, 27 unit tests, secret scan, and production build pass; the bounded chat/history delta awaits independent review and chat-specific browser confirmation. No live connection, model, MCP server, or Jev request has been tested. Date: 2026-10-05.
 
 ## Current delivery gap
 
-The implemented UI submits one inquiry and replaces its result card. The agent uses only the current inquiry: multi-turn history, the planned same-target recent user turns, Chat UI message parts, and conversation streaming are not implemented. These remain requirements, not completed or waived features. Existing offline verification covers the implemented single-inquiry/agent/decision boundaries only; full conversational acceptance remains pending.
+The UI now appends inquiry and assistant response/supplement text, exposes safe tool status, and selects evidence for one turn at a time. Live requests may carry at most one prior same-case completed live turn plus the current inquiry (two user turns total); this is length-checked unverified conversation context only. It never supplies Jev facts, which come from the current inquiry and current-turn projected tool ledger. Case or execution-mode changes clear the conversation and evidence state. Offline narrative/tool plans are labeled fixtures. Realtime conversational streaming and message-part rendering remain unimplemented and are not claimed by the offline checks.
 
 ## Goal
 
@@ -95,7 +95,7 @@ In comparison mode the agent still selects tools. Wrappers answer from a server-
 3. Fictional desks, ordered priority criteria, next-check choices, and criteria version.
 4. Actual Jev answers, score/legend/probabilities/confidence/model, run ID, latency, and safe request/response expansion.
 
-Show the LLM supplement separately. “Raw request” means the projected Jev request, not raw customer data or headers. Distinguish collecting, validation error, evaluating, decision error, and completed. Never display the previous success as the current result. Fixtures must show “OFFLINE FIXTURE / Jev not called.”
+Show the normal LLM/MCP agent reply, safe tool name/status/count receipts, and LLM supplement with separate labels. Show evidence only for the selected turn; “Raw request” means the projected Jev request, not raw customer data or headers. Distinguish collecting, validation error, evaluating, decision error, and completed. Never display a previous turn’s success as the current result. Fixtures must show “OFFLINE FIXTURE / Jev not called” and state that planned tools were not executed. Realtime streaming and message-part rendering are not implemented.
 
 ## Proposed limits and live gates
 
@@ -104,7 +104,7 @@ Show the LLM supplement separately. “Raw request” means the projected Jev re
 - Unique successful live business GETs: three for an application, four for a claim. Duplicate calls use turn cache; errors are not retried.
 - Text 2,000 characters, projected tool result 8 KiB, full snapshot 16 KiB. Exceeding a bound stops rather than silently truncating.
 - Candidate LLM limits: input 16k tokens; Phase A output 800 per generation, Phase C output 500. Provider parameter/tokenizer enforcement is unverified. Character/byte limits are not token limits.
-- Same-target history: at most two user turns; only the applicable snapshot. Jev gets the current inquiry, not prior user claims.
+- Same-target history: at most two user turns total (one previous turn plus current); only the applicable snapshot. Conversation history is unverified context for the normal agent only. Jev gets the current inquiry and current-turn ledger, not prior user claims. Chat turns append locally; evidence is selected per turn, and case/mode changes reset state.
 - Core six turns: at most 42 LLM generations and six Jev attempts; base data acquisition up to 11 unique GETs, comparison live GETs zero. Tool invocations and protocol traffic are separate counters.
 - Initial live proposal adds one LLM generation and one Jev schema smoke: maximum 43 LLM generations and seven Jev attempts. This is not approval or a monetary guarantee.
 

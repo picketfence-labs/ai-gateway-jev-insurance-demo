@@ -1,6 +1,6 @@
 # Test plan
 
-Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Latest local checks pass with 23 unit tests and zero secret-scan findings. Independent review and browser smoke passed. The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
+Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Latest local checks pass with 27 unit tests and zero secret-scan findings. The bounded chat/history delta awaits independent review and chat-specific browser smoke. The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
 
 ## Offline acceptance before live access
 
@@ -17,10 +17,12 @@ Status: offline unit contracts, package commands, secret scanning, and CI are im
 | Comparison | Parent snapshot hit/miss, reordered and duplicate tool calls | Visible snapshot source, fixed facts/rubric, no live fallback |
 | Phase C | Success and decision failure | Tools disabled; supplement cannot overwrite cards; failure skips supplement |
 | UI status and routing | Offline/live mode selection, readiness locked/ready, pending/error/completed | Offline default, no config values exposed, distinct routes, same request ID on unchanged retry, fixtures labeled offline |
+| Bounded conversation context | One prior same-case live turn plus current inquiry; cross-case/mode, extra payload, or oversized input | At most two user turns total; text-only and length-checked before LLM; prior conversation explicitly unverified and cannot supply facts; Jev receives current inquiry only |
+| Chat/evidence state | Append assistant response and supplement, select historical turn, change case or mode | Turns append; only selected turn's four evidence sections render; case/mode change clears chat, snapshot, selection and results; fixture narrative/tool plan is labeled not model output/not executed; safe tool status excludes raw data/errors |
 | Evidence separation | User statement, projected facts, host rubric/version, Jev result, LLM supplement | Four evidence sections stay distinct; show the ordered priority scale and keep the supplement separate |
 | Limits | Tool/step/text/byte/output bounds and partial ledgers | Stop explicitly without silent truncation or hidden retrieval |
 
-Implemented test file: `tests/unit/contracts.test.ts`. It uses synthetic fixtures and mocks; it does not make upstream requests. Keep credentials and real customer fields out of test data and evidence.
+Implemented test file: `tests/unit/contracts.test.ts`. It uses synthetic fixtures and mocks; it does not make upstream requests. Realtime streaming and message-part rendering are not implemented. Keep credentials and real customer fields out of test data and evidence.
 
 ## Local checks
 

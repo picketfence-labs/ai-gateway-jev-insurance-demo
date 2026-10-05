@@ -19,3 +19,18 @@ Playwright browser interaction and rendered-DOM checks were used. A missing favi
 ## Limits
 
 This is browser evidence for fixture mode, not external LLM, MCP, Gateway, or native Jev integration. Actual provider/model behavior, recommendation quality, cloud configuration, and live budgets remain unverified and require separate approval.
+
+## Bounded chat follow-up
+
+The final production build was checked again after the bounded chat changes:
+
+- Two successive S1 inquiries appended two user/assistant turns rather than replacing the transcript.
+- Selecting the earlier turn displayed its own inquiry, projected facts, rubric, decision card, and separate supplement while preserving both turns.
+- Changing S1 to S2 cleared the transcript, selected evidence, pending snapshot, inquiry, and comparison state. No S1 identifier or prior inquiry remained.
+- During a locally delayed offline request, mode, case, and Clear controls were disabled; completion retained both turns. This test delayed only a localhost request.
+- Tool receipts showed safe names, status, source, and counts. Offline plans were explicitly not executed, with zero actual tool calls.
+- Default live readiness remained locked. No external service was invoked.
+
+![Two offline chat turns with earlier-turn evidence selected](offline-chat.png)
+
+Independent code review and mock tests additionally checked the same-case, one-previous-turn plus current-inquiry LLM history boundary; mode reset; and the exclusion of history from Jev fact collection. Those are not claims of external integration success. Real-time streaming and persistent chat storage are not implemented.

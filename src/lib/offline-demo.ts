@@ -20,6 +20,7 @@ export function createOfflinePreview(caseId: CaseId, comparison: boolean, failur
     caseId,
     scenario: scenario.title,
     state,
+    assistantNarrative: { label: "OFFLINE FIXTURE / not LLM output", text: `This synthetic ${scenario.title} narrative is only for the local chat preview. No LLM or MCP tool ran.` },
     inquiry,
     userStatement: { text: inquiry, source: "user-provided synthetic fixture", verified: false },
     apiFacts: {
@@ -32,6 +33,10 @@ export function createOfflinePreview(caseId: CaseId, comparison: boolean, failur
     hostValidation: failure === "missing-facts"
       ? { complete: false, jevCalls: 0, reason: "Required product fact is missing in this error fixture; Jev is skipped." }
       : { complete: true, jevCalls: 0, reason: "Fixture preview only; no Jev request was sent." },
+    toolStatus: {
+      invocationCount: 0,
+      receipts: scenario.toolOrder.map((tool) => ({ tool, status: "fixture_plan_only" as const, source: "offline_fixture" as const })),
+    },
     jevCard: decision ? { label: "OFFLINE FIXTURE / Jev not called", criteriaVersion: "insurance-intake-v1", ...decision } : null,
     error: failure === "jev-failure" ? "Fixture: native Jev request failed; no fallback score is shown." : null,
     supplement,

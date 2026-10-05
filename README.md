@@ -2,7 +2,7 @@
 
 This private repository contains an offline-first demo scaffold for a conversational insurance inquiry. The normal LLM agent, scoped MCP tool wrappers, host ledger, native Jev request boundary, and separate LLM supplement are implemented. The default UI uses synthetic fixtures and makes no upstream business API, LLM, MCP, or Jev calls. The live path remains locked unless its server-side mode, approval, UI-enable flag, and required configuration all validate. No live integration has been tested.
 
-**Delivery boundary:** the current UI is a single-inquiry form with a replacement result card, not a multi-turn Chat UI. The live agent processes the current inquiry only. Conversation history, retention of the same target’s recent user turns, message-part rendering, and conversational streaming remain unimplemented. Offline checks and the implemented agent boundaries pass, but the full conversational acceptance contract is not complete.
+**Delivery boundary:** the local UI appends chat turns and lets the user select one turn’s evidence; historical evidence cards are never combined. For a live request, only one prior same-case live turn plus the current inquiry may be sent to the normal agent as unverified conversation context. Jev receives only the current inquiry and current-turn ledger. Offline assistant text/tool plans are fixtures, not model output or executed tools. Realtime conversational streaming and message-part rendering remain unimplemented; no live integration has been tested.
 
 This demo is not an underwriting, payment eligibility, customer authentication, or service commitment system.
 
@@ -50,7 +50,7 @@ npm run secret-scan
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
-The latest local checks pass: lint, typecheck, 23 unit tests, a secret scan with zero findings, and a production build. Independent code review passed. The [localhost browser smoke](docs/evidence/browser-smoke.md) passed for three scenarios, comparisons, and error fixtures. Passing offline checks does not verify Gateway, MCP, model, or Jev connectivity.
+The latest local checks pass: lint, typecheck, 27 unit tests, a secret scan with zero findings, and a production build. The bounded chat/history delta awaits independent code review and a chat-specific localhost UI confirmation; the earlier smoke covered three scenarios, comparisons, and error fixtures. Passing offline checks does not verify Gateway, MCP, model, or Jev connectivity.
 
 ## Demo boundaries
 
@@ -60,6 +60,8 @@ The latest local checks pass: lint, typecheck, 23 unit tests, a secret scan with
 - Comparisons read an in-process, server-held projected snapshot. A missing or out-of-scope snapshot never falls back to a live business GET.
 - Request replay protection and snapshots are process-local. Restarting the process or using multiple instances does not provide durable idempotency or shared state.
 - Offline cards are explicitly marked as fixtures. They are not model output, API results, or Jev decisions.
+- The live agent may receive only the most recent completed same-case live user/assistant turn plus the current inquiry (two user turns total). This prior dialogue is unverified context, is length-checked, and cannot satisfy facts; raw tool payloads are never placed in conversation history. Case or mode changes clear the chat, selection, snapshots, and results.
+- UI tool receipts expose only allowlisted tool name, safe status, source, and count. Offline tool plans are explicitly not executed. The UI does not implement streaming.
 
 The normal LLM route through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. Gemini is the first provider candidate, but the provider, model, pin, Gateway configuration, and end-to-end tool behavior remain unverified. Live calls, credentials, Konnect changes, paid calls, and public hosting are not approved.
 

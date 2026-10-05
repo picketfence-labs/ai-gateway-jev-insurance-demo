@@ -11,6 +11,8 @@ import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
 import { runLiveTurn } from "@/lib/gateway-agent";
 import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
+import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
+import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
 
 function completeS1() {
   const ledger = new TurnLedger("S1");
@@ -263,6 +265,22 @@ describe("offline and live gates", () => {
     } finally { fetchSpy.mockRestore(); }
   });
 
+  it("validates and forwards only bounded text history to the live agent", async () => {
+    const env = {
+      DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
+    } as unknown as NodeJS.ProcessEnv;
+    const agent = vi.fn(async () => ({ status: "mocked" }));
+    const history = [{ caseId: "S1", mode: "live", userText: "prior question", assistantText: "prior answer" }];
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "current question", requestId: requestId(20), conversationHistory: history }, env, agent)).toMatchObject({ status: 200 });
+    expect(agent).toHaveBeenCalledWith(expect.objectContaining({ conversationHistory: history }));
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "current question", requestId: requestId(21), conversationHistory: [{ ...history[0], caseId: "S2" }] }, env, agent)).toMatchObject({ status: 400 });
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "current question", requestId: requestId(22), conversationHistory: [{ ...history[0], rawMcpResult: "CANARY" }] }, env, agent)).toMatchObject({ status: 400 });
+    expect(agent).toHaveBeenCalledTimes(1);
+  });
+
   it("replays same live request ID once and rejects payload reuse without another agent call", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
@@ -340,5 +358,64 @@ describe("offline and live gates", () => {
     expect(limits.reserveGeneration("supplement")).toBe(false);
     for (let i = 0; i < 8; i += 1) expect(limits.reserveMcpInvocation()).toBe(true);
     expect(limits.reserveMcpInvocation()).toBe(false);
+  });
+});
+
+describe("bounded chat history and per-turn evidence", () => {
+  it("accepts only one prior same-case live conversation plus the current inquiry", () => {
+    const onePrior = [{ caseId: "S1", mode: "live", userText: "Earlier question", assistantText: "Earlier reply" }];
+    expect(validateConversationHistory(onePrior, "S1", "Current question")).toEqual(onePrior);
+    expect(() => validateConversationHistory([...onePrior, ...onePrior], "S1", "Current question")).toThrow(/at most one/);
+    expect(() => validateConversationHistory([{ ...onePrior[0], caseId: "S2" }], "S1", "Current question")).toThrow(/same case/);
+    expect(() => validateConversationHistory([{ ...onePrior[0], mode: "offline" }], "S1", "Current question")).toThrow(/same case/);
+    expect(() => validateConversationHistory([{ ...onePrior[0], userText: "x".repeat(2001) }], "S1", "Current question")).toThrow(/same case/);
+    expect(() => validateConversationHistory([{ ...onePrior[0], rawToolPayload: { email: "CANARY" } }], "S1", "Current question")).toThrow(/same case/);
+    expect(() => validateConversationHistory(onePrior, "S1", "x".repeat(2001))).toThrow(/1–2000/);
+    const context = serializeConversationContext(validateConversationHistory(onePrior, "S1", "Current question"), "Current question");
+    expect(context).toContain("previous_conversation_only_unverified");
+    expect(context).toContain("current_user_statement");
+    expect(context).not.toContain("rawToolPayload");
+  });
+
+  it("keeps history isolated by case and mode and appends/selects evidence by turn", () => {
+    const evidenceOne = { kind: "evidence-one" };
+    const evidenceTwo = { kind: "evidence-two" };
+    const turns: ChatTurn<typeof evidenceOne>[] = [
+      { id: "live-s1-1", caseId: "S1", mode: "live", inquiry: "S1 first", replies: [{ label: "Normal LLM", text: "one" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceOne },
+      { id: "live-s2-1", caseId: "S2", mode: "live", inquiry: "S2", replies: [{ label: "Normal LLM", text: "other case" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceTwo },
+      { id: "offline-s1-1", caseId: "S1", mode: "offline", inquiry: "fixture", replies: [{ label: "OFFLINE FIXTURE / not LLM output", text: "fixture" }], safeTools: projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture" }] }), evidence: evidenceTwo },
+    ];
+    expect(recentConversationHistory(turns, "S1", "live")).toEqual([{ caseId: "S1", mode: "live", userText: "S1 first", assistantText: "Normal LLM: one" }]);
+    expect(recentConversationHistory(turns, "S2", "live")).toEqual([{ caseId: "S2", mode: "live", userText: "S2", assistantText: "Normal LLM: other case" }]);
+    expect(recentConversationHistory(turns, "S1", "offline")).toEqual([]);
+    const appended = appendChatTurn(turns, { id: "live-s1-2", caseId: "S1", mode: "live", inquiry: "S1 second", replies: [{ label: "Normal LLM", text: "two" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceTwo });
+    expect(appended).toHaveLength(4);
+    expect(selectedChatTurn(appended, "live-s1-2")?.evidence).toBe(evidenceTwo);
+    expect(selectedChatTurn(appended, "live-s1-2")?.inquiry).toBe("S1 second");
+    expect(selectedChatTurn(appended, "missing")).toBeNull();
+  });
+
+  it("does not let prior dialogue satisfy Jev's current-turn ledger and projects only safe tool status", async () => {
+    const oldClaimText = "The prior conversation claims the claim amount is 462000";
+    const ledger = new TurnLedger("S1");
+    expect(() => buildNativeRequest(ledger, "Current inquiry only", "model-boundary")).toThrow(/Required claim/);
+    const sendJev = vi.fn();
+    const phase = await runDecisionPhases({ ledger, inquiry: "Current inquiry only", model: "test", runId: "current-only", registry: new AttemptRegistry(), sendJev, writeSupplement: vi.fn() });
+    expect(phase.status).toBe("ineligible");
+    expect(sendJev).not.toHaveBeenCalled();
+    const jevRequest = buildNativeRequest(completeS1(), "Current inquiry only", "model-boundary");
+    expect(jevRequest.state).not.toContain(oldClaimText);
+    expect(JSON.parse(jevRequest.state)).toMatchObject({ user_inquiry: "Current inquiry only" });
+
+    const safe = projectSafeToolStatus("completed", {
+      invocationCount: 1,
+      receipts: [{ tool: "claim", status: "completed", source: "live_api", rawResult: "CANARY-RAW-RESULT" }],
+      error: "CANARY-RAW-ERROR",
+    });
+    expect(safe).toEqual({ state: "completed", invocationCount: 1, receipts: [] });
+    expect(JSON.stringify(safe)).not.toMatch(/CANARY|rawResult|error/i);
+    const fixturePlan = projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture" }] });
+    expect(fixturePlan.invocationCount).toBe(0);
+    expect(fixturePlan.receipts[0]).toMatchObject({ status: "fixture_plan_only", source: "offline_fixture" });
   });
 });

@@ -37,6 +37,6 @@ Before a live follow-up, confirm provider/model/pin, Gateway endpoint and config
 
 ## Current implementation gap
 
-- [ ] Implement and verify multi-turn conversational history for the same target, including the planned recent-user-turn bound and message-part/stream presentation.
+- [ ] Implement and verify realtime conversational streaming and message-part presentation.
 
-The delivered UI is currently single-inquiry with replacement cards. The real tool-agent and separate supplement code exist, but they receive the current inquiry only. Passing offline checks is not completion of the full conversational requirement.
+The UI now appends submitted inquiries and assistant reply/supplement text, and evidence is selected per turn rather than mixing historical cards. For live requests, the normal agent may receive at most one previous completed same-case turn plus the current inquiry (two user turns total), as unverified text-only context; Jev receives only the current inquiry and the current-turn ledger. Case/mode changes reset conversation and evidence state. Fixture narratives and tool plans are labeled as not model output/not executed. Safe UI tool receipts contain only allowlisted name, status, source, and count. Realtime streaming/message-part presentation remains unimplemented; no live calls or end-to-end connections are verified. Prior partial-completion notes remain in the troubleshooting log.
