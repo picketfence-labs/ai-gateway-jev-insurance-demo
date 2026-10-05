@@ -1,6 +1,6 @@
 # Design brief
 
-Status: design scaffold, not implementation or live validation. Date: 2026-10-05.
+Status: offline implementation scaffold with a separate live adapter boundary. The UI defaults to synthetic fixtures. Local lint, typecheck, 22 unit tests, secret scan, and production build pass; independent review and browser smoke passed. No live connection, model, MCP server, or Jev request has been tested. Date: 2026-10-05.
 
 ## Goal
 
@@ -19,9 +19,9 @@ Exclude Simulation, list/search/write tools, real personal data, underwriting, p
 - Proposed deployment: local Compose, five API containers, one AI Gateway 2.2.0 data plane, and one UI/backend container. No Compose implementation yet. Do not copy the existing full Kubernetes stack.
 - Konnect-managed control plane with a self-managed data plane; five logical MCP endpoints on the same data plane. Exact configuration remains subject to a smoke test.
 - Jev always uses a TypeSafe native Route through AI Gateway. A fixed model target is preferred; availability and pin are not confirmed.
-- Normal LLM routing through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. Gemini is the first provider candidate, but the provider/model/pin, Gateway endpoint/configuration, environment-variable contract, and end-to-end tool/streaming behavior remain unverified. Keep the live adapter behind the Gateway endpoint and environment boundary, and fail closed without approved configuration. No live calls are approved.
-- Gemini native SDK routing versus an OpenAI-compatible SDK adapter needs explicit format, tool, authentication-header, and streaming validation. Public provider support alone does not prove the selected SDK works end to end.
-- Dependencies, package manager, build commands, CI, source/image pins, ports, and approved environment are not configured. No existing external runtime is assumed to be reusable.
+- Normal LLM routing through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. The live adapter uses the OpenAI-compatible AI SDK provider behind a configured Gateway endpoint. Gemini is the first provider candidate, but the provider/model/pin, Gateway endpoint/configuration, environment-variable contract, and end-to-end tool behavior remain unverified. The live route requires server mode, separate approval and UI-enable flags, plus complete configuration. Do not set them or make live calls without a separate approved scope.
+- The repository pins Next.js, React, TypeScript, the AI SDK, MCP client, provider adapter, and Vitest dependencies. It has build, typecheck, lint, test, secret-scan, and offline CI commands. These checks do not prove the configured Gateway, model, MCP services, native Jev route, or auth headers work.
+- The local UI runs on `127.0.0.1:3000`. Compose, API service images, Gateway runtime, Konnect configuration, and model connections are not implemented or tested.
 
 ## A: Agent calls tools
 
@@ -64,7 +64,7 @@ Question contract `insurance-intake-v1`:
 - `priority`, Score: ordered criteria 0 ordinary status/procedure inquiry; 1 additional clarification or reported mismatch; 2 an explicitly stated wish for early human contact. Level 2 is not verified objective urgency or a service deadline.
 - `next_check`, Choice: claim_progress, claim_additional_information, application_progress, application_correction, payment_receipt, payment_amount, policy_information, clarify_intent. These recommend questions to ask, not findings or internal reasons.
 
-Use named question keys, Choice criteria objects, and a Score criteria array. Score is a continuous value from 0 to 2, not an integer label. Keep actual legend, probabilities, confidence, model, and usage. Validate shapes, allowed keys, finite values, and ranges. Probability-sum diagnostics are warnings; keep raw values without normalization or confidence recalculation. No free-text Jev reason is assumed.
+Use a named question map with required instructions, lowercase `choice` and `score` types, Choice criteria objects, and a Score criteria array. Score is a continuous value from 0 to 2, not an integer label. The response requires a `type` on every answer, all candidate keys in each probability map, all `0`, `1`, and `2` Score legend keys, confidence, model, and integer input/output usage. Validate shapes, allowed keys, finite values, and ranges. Probability-sum diagnostics are warnings above `1e-6`; keep raw values without normalization or confidence recalculation. No free-text Jev reason is assumed.
 
 ## C: LLM supplement
 
@@ -82,7 +82,7 @@ The paths below are direct container paths, not finalized external MCP Route nam
 
 Suggested first desks are claim_progress/application_status/payment_status. These are hypotheses for review, not mocked results. Do not infer missing documents, payout eligibility, legal absence of a contract, bank failure, over/underpayment, or a reduction reason. No such supporting APIs are available in scope.
 
-In comparison mode the agent still calls tools. Wrappers answer from the parent's projected snapshot and identify `source=parent_snapshot`. Base responses identify `source=live_api`. Missing snapshot entries stop the run; never fall back to live. Require the current agent's complete ledger before evaluation. Facts hash and criteria version stay fixed; only inquiry changes. Tool order/count and LLM text may vary. Show unchanged scores honestly.
+In comparison mode the agent still selects tools. Wrappers answer from a server-held projected snapshot and identify `source=parent_snapshot`. Base responses identify `source=live_api`. The client submits a snapshot ID, never facts. Missing snapshot entries stop the run; never fall back to a business GET. Require the current agent's complete ledger before evaluation. Facts hash and criteria version stay fixed; only inquiry changes. Tool order/count and LLM text may vary. Show unchanged scores honestly. Snapshots are process-local, expire after ten minutes, and are not shared across restarts or instances.
 
 ## UI evidence
 
@@ -95,8 +95,8 @@ Show the LLM supplement separately. “Raw request” means the projected Jev re
 
 ## Proposed limits and live gates
 
-- Single-flight, retry zero at browser/app/SDK/Gateway layers; verify this before claiming an attempt cap.
-- Phase A: at most six LLM generations and eight tool invocations including cache hits. Phase C: one generation with tools disabled.
+- The implementation caps Phase A at six LLM generations and eight MCP tool invocations, including cache/snapshot hits. Phase C allows one tool-free generation. The server uses a UUIDv4 request ID and process-local single-flight response cache (15-minute retention, 4,096-entry cap) to replay concurrent or repeated identical submissions without another agent/Jev run; reusing an ID with changed input is rejected. Restarting a process or using multiple instances does not provide durable idempotency.
+- Process-wide Gateway, Jev, and MCP budgets must be configured explicitly. A budget change after the process has configured its first values fails closed. The code does not claim monetary enforcement, token caps, durable budget accounting, or support for multiple instances.
 - Unique successful live business GETs: three for an application, four for a claim. Duplicate calls use turn cache; errors are not retried.
 - Text 2,000 characters, projected tool result 8 KiB, full snapshot 16 KiB. Exceeding a bound stops rather than silently truncating.
 - Candidate LLM limits: input 16k tokens; Phase A output 800 per generation, Phase C output 500. Provider parameter/tokenizer enforcement is unverified. Character/byte limits are not token limits.
@@ -108,9 +108,9 @@ Before live work, confirm the configured Gateway endpoint and payload destinatio
 
 ## Delivery and implementation gates
 
-Follow [test-plan.md](test-plan.md). First deliver offline contracts and tests, then request the bounded connection spike. Actual test/build/lint/run commands and CI must be added with implementation; none are claimed to work now.
+Follow [test-plan.md](test-plan.md). Offline unit contracts, the local UI, CI, and documented commands are implemented. Independent review and final handoff checks are tracked in the troubleshooting log. Passing offline checks do not authorize or validate a live connection.
 
-Bootstrap is partial: local documents and the private GitHub repository exist; [Issue #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1) is the work contract. Git base transfer, dependency pins, runnable commands, CI, technical permission gates, and live setup remain pending. Offline implementation and independent review are approved, but implementation and runtime checks have not started. A feature-branch PR receives independent review; the owner merges and performs demo acceptance. Close the work item only after technical evidence and business acceptance.
+Bootstrap remains partial: the private repository, [Issue #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1), pinned dependencies, offline code, tests, and CI exist. Independent code review is required before the owner accepts the demo. Live setup, external requests, Compose, and hosted deployment remain outside the implemented scope. A feature-branch PR receives independent review; the owner merges and performs demo acceptance. Close the work item only after technical evidence and business acceptance.
 
 Read README, this brief, ADR, test plan, and the current work item first. Offline implementation is authorized within that scope. Do not treat this authorization as permission for live work.
 

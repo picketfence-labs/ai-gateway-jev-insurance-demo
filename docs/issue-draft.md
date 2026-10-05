@@ -25,6 +25,10 @@ Implement the adopted [design brief](https://github.com/picketfence-labs/ai-gate
 - [ ] Safe example configuration with placeholders only; no credentials, environment-specific IDs, or machine paths.
 - [ ] Troubleshooting entries, implementation ADR changes, and a technical report linking commands and raw evidence.
 
+## Current implementation boundary
+
+The repository now contains the offline UI, synthetic scenarios, projected-ledger contracts, a gated normal-LLM/MCP/native-Jev adapter, process-local comparison snapshots and request replay protection, unit tests, and offline CI. The live readiness check exposes only a status; its route remains locked by default. The acceptance boxes above remain unchecked until independent review and owner acceptance. No live model, business API, or Jev request has been made.
+
 ## Completion and review
 
 Use a feature branch and PR after Git/remote approval. The implementation worker does not merge. An independent reviewer checks code and test evidence; the owner performs demo acceptance. Mark unexecuted live work explicitly. Do not automatically close this work item on PR merge.
