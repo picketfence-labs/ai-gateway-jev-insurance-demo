@@ -611,3 +611,69 @@ and offline Docker web build all passed. The post-stop build image is
 `sha256:fb50049c62418c3f9ddb5dd57d5d00d9caf5f8b4e2b775eeff9dd435e8aff90c`;
 it was not started for another turn. The 11:03 S1 used the earlier
 `3666eaf8...` image, so the later catalog does not retroactively identify its error.
+
+## Native Jev / AI Proxy Advanced checkpoint — 2026-10-06
+
+The official [AI Gateway 2.x entity mapping](https://developer.konghq.com/ai-gateway/ai-gateway-v2-concepts/)
+states that the CP provisions underlying primitives and maps AI Model to AI
+Proxy Advanced. This is native 2.x configuration, not an assumed reuse of a
+Gateway 3.x plugin configuration API. The [TypeSafe provider contract](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)
+requires minimum 2.2, `decisions`, `typesafe` format, and an AI Model entity name
+in the native request. Its example path is `/jev/v1/systemone`; the body is
+passed through rather than converted into ChatCompletion.
+
+Read-only inspection of the actual `kong/kong-ai-gateway:2.2.0` image found the
+Advanced handler's compiled module and provider dispatch. Its disassembly imports
+`kong.llm.plugin.base`; `filters/setup.ljbc` reads `model.provider`, calls
+`llm.new_driver(provider)`, then `driver.prepare_dns`. Under
+`/usr/local/share/lua/5.1/`, `kong/llm/plugin/shared-filters/configure-request.lua:52–78`
+selects `kong.llm.drivers.<provider>` and calls `configure_request`;
+`normalize-request.lua:332–370,458–483` calls the selected driver's `to_format`
+when needed. `kong/llm/drivers/typesafe.lua:45–75` handles the TypeSafe adapter
+and upstream target. File hashes are in the sanitized evidence below. This
+establishes implementation support, not a trace of an individual request.
+
+The dedicated DP has no listener on Admin port 8001; the exact internal
+read-only `/plugins` probe returned connection-refused. It was not repeated or
+enabled. Consequently the particular model/route's generated plugin instance
+association and handler execution remain **not directly observed**. Official
+mapping, registered native TypeSafe model/provider, attached DP 2.2.0, and its
+Advanced-to-TypeSafe implementation support the configuration's intended use
+of that capability. Do not label the smoke below an individual-handler trace.
+
+After independent dummy-transport review, the owner-approved single smoke used
+[`scripts/jev-gateway-smoke.py`](../scripts/jev-gateway-smoke.py): one POST to
+the dedicated DP's loopback `/jev/v1/systemone`, model alias
+`insurance-jev-decisions`, one synthetic choice question, 10-second timeout,
+no redirects/proxy/retries, and the existing inbound Jev `apikey` credential.
+Upstream provider credentials were not sent by this client. Preflight loads
+0600 local secrets before network access; errors use the verified bounded
+redaction helper, and successful output is a small allowlisted projection.
+
+The bash `date` checkpoints were **11:48:49–11:48:50 JST** (not a measured
+provider latency). The request returned **HTTP 200**, actual model
+**`jev-1.13.0`**, choice **`green`**, confidence 1, probabilities green 1 / other 0,
+and usage **340 input / 32 output tokens**. Confidence is not a correctness
+guarantee. The same-window DP access log independently shows one Jev route
+POST/200. The payload hash and permitted result fields are saved in
+[`evidence/native-jev-single-smoke.json`](evidence/native-jev-single-smoke.json);
+no raw body, headers, credentials or insurance facts are saved.
+
+This confirms an actual native TypeSafe/Jev response through AI Gateway 2.2
+and the official underlying Advanced mapping. It does **not** complete the
+three-question insurance ledger, normal LLM/MCP flow, Japanese result card,
+or individual plugin trace. Normal and MCP requests, and client-to-provider
+bypass requests, were zero in this probe. One Gateway-mediated Jev request
+succeeded; its internal upstream send count was not directly observed. This
+new probe is separate from the earlier failed S1 turns with observed Jev zero.
+Actual monetary cost is unknown, not zero. No further inference
+followed; web remains stopped, retained DP/APIs are unchanged, and the proposed
+fact-acquisition architecture change remains unapproved.
+
+Process feedback: the previous Admin probe's opaque failure was narrowed to
+connection-refused/no listener; source bytecode and official mapping were kept
+distinct from live execution evidence. B independently reviewed the helper
+using temporary dummy secrets and transports before the single real POST.
+Post-probe offline checks passed: lint, typecheck, 48 unit tests, secret scan
+(55 files, zero findings), Next.js build, diff check and helper Python compilation.
+No web or provider request was started by those checks.
