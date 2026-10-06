@@ -59,11 +59,11 @@ Editable user text has a separate disclosure boundary. API projection cannot rem
 
 ## B: Host calls Jev once
 
-Every submission for a selected scenario is an evaluation turn. Eligibility requires valid text/scope, the complete required tool ledger (from successful LLM-selected calls plus any bounded host completion after normal-model completion), valid types/nulls, all matching references, a projected snapshot, and remaining approved budget. LLM transport/SDK failure, incomplete host acquisition, or reference/scope errors stop before Jev.
+Every submission for a selected scenario is an evaluation turn. Eligibility requires valid text/scope, the complete required tool ledger (from successful LLM-selected calls plus any bounded host completion after normal-model completion), valid types/nulls, all matching references, a projected snapshot. LLM transport/SDK failure, incomplete host acquisition, or reference/scope errors stop before Jev.
 
-Reserve run/attempt before sending. Eligible turns make one request with three questions, at most one attempt. Incomplete facts, 404, type errors, missing fields, scope errors, or inconsistent references make zero Jev calls. Host completion is limited to the still-missing selected-case facts under the same wrappers, ledger, projection, and budget; it cannot silently substitute for a failed normal LLM call.
+Reserve run/attempt before sending. Eligible turns make one request with three questions, at most one attempt. Incomplete facts, 404, type errors, missing fields, scope errors, or inconsistent references make zero Jev calls. Host completion is limited to the still-missing selected-case facts under the same wrappers, ledger, projection, and call timeouts; it cannot silently substitute for a failed normal LLM call.
 
-Send host-ledger facts, current inquiry, and versioned demo criteria as a JSON-string state. Do not mix LLM summaries into API facts. Timeouts and HTTP failures consume the attempt. Only an explicit new run with remaining budget can retry.
+Send host-ledger facts, current inquiry, and versioned demo criteria as a JSON-string state. Do not mix LLM summaries into API facts. Timeouts and HTTP failures consume the attempt. Only an explicit new run can retry.
 
 Question contract `insurance-intake-v1`:
 - `desk`, Choice: claim_progress, application_status, payment_status, policy_information, general_intake. These are fictional intake desks.
@@ -101,16 +101,16 @@ Show the normal LLM/MCP agent reply, safe tool name/status/count receipts, and L
 
 ## Proposed limits and live gates
 
-- The implementation caps Phase A at six LLM generations and eight MCP tool invocations, including cache/snapshot hits. Phase C allows one tool-free generation. The server uses a UUIDv4 request ID and process-local single-flight response cache (4,096-entry cap) to replay concurrent or repeated identical submissions without another agent/Jev run. Entries remain reserved for the process lifetime, including after failures; reusing an ID with changed input is rejected. When the registry is full, new IDs fail closed. Restarting a process or using multiple instances does not provide durable idempotency.
-- Process-wide Gateway, Jev, and MCP budgets must be configured explicitly. A budget change after the process has configured its first values fails closed. The code does not claim monetary enforcement, token caps, durable budget accounting, or support for multiple instances.
+- Phase A uses an SDK stop condition at six steps, followed by at most one tool-free supplement; it is not a request/tool flow quota. UUIDv4 request IDs use a process-local response registry with at most 4,096 retained records. Identical retained IDs replay without another agent/Jev run, and changed-input reuse is rejected. When full, the oldest completed record is evicted; in-flight records are never evicted. An all-in-flight registry rejects new IDs until completion. Protection does not extend to evicted IDs, process restart, or multiple instances.
+- No app request/tool quota is imposed for this owner-only demo. The SDK acquisition loop stops at six steps, per-call timeouts and zero retries remain, and each turn evaluates Jev at most once. Attempt counters are not wire or billing totals. The code does not enforce monetary or token caps.
 - Unique successful live business GETs: three for an application, four for a claim. Duplicate calls use turn cache; errors are not retried.
 - Text 2,000 characters, projected tool result 8 KiB, full snapshot 16 KiB. Exceeding a bound stops rather than silently truncating.
 - Candidate LLM limits: input 16k tokens; Phase A output 800 per generation, Phase C output 500. Provider parameter/tokenizer enforcement is unverified. Character/byte limits are not token limits.
 - Same-target history: at most two user turns total (one previous turn plus current); only the applicable snapshot. Conversation history is unverified context for the normal agent only. Jev gets the current inquiry and current-turn ledger, not prior user claims. Chat turns append locally; evidence is selected per turn, and case/mode changes reset state.
-- Core six turns: at most 42 LLM generations and six Jev attempts; base data acquisition up to 11 unique GETs, comparison live GETs zero. Tool invocations and protocol traffic are separate counters.
+- Historical six-turn proposal: 42 normal LLM generations and six Jev attempts were planning estimates, not current code quotas or automatic execution approval. Comparison business GETs remain zero; tool invocations and protocol traffic are distinct.
 - Initial live proposal adds one LLM generation and one Jev schema smoke: maximum 43 LLM generations and seven Jev attempts. This is not approval or a monetary guarantee.
 
-Before live work, confirm the configured Gateway endpoint and payload destinations, and obtain explicit approval for environment/region/org, resource change scope and cleanup, runtime/image/model pins, credential delivery, prices, monetary caps, timeouts, and the bounded request plan. The approved route does not authorize live calls. No secrets or actual environment identifiers are stored here. Stop on leakage, scope mismatch, contract errors, budget exhaustion, or repeated failures.
+Before live work, confirm the configured Gateway endpoint and payload destinations, and obtain explicit approval for environment/region/org, resource change scope and cleanup, runtime/image/model pins, credential delivery, prices, monetary caps, timeouts, and the bounded request plan. The approved route does not authorize live calls. No secrets or actual environment identifiers are stored here. Stop on leakage, scope mismatch, contract errors, or repeated failures.
 
 ## Delivery and implementation gates
 

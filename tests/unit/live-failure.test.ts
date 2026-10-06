@@ -19,10 +19,10 @@ import { ContractError } from "@/lib/projection";
 const liveEnv: Record<string, string> = {
   DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true",
   AI_GATEWAY_BASE_URL: "https://gateway.example.test/v1/insurance-normal", AI_GATEWAY_API_KEY: "normal-dummy",
-  AI_GATEWAY_MODEL: "insurance-normal", AI_GATEWAY_TIMEOUT_MS: "10", AI_GATEWAY_REQUEST_BUDGET: "100",
+  AI_GATEWAY_MODEL: "insurance-normal", AI_GATEWAY_TIMEOUT_MS: "10",
   AI_GATEWAY_JEV_URL: "https://gateway.example.test/jev/v1/systemone", AI_GATEWAY_JEV_API_KEY: "jev-dummy",
-  AI_GATEWAY_JEV_MODEL: "insurance-jev-decisions", AI_GATEWAY_JEV_TIMEOUT_MS: "10", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "100",
-  MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "10", MCP_TOOL_INVOCATION_BUDGET: "100",
+  AI_GATEWAY_JEV_MODEL: "insurance-jev-decisions", AI_GATEWAY_JEV_TIMEOUT_MS: "10",
+  MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "10",
   MCP_CUSTOMER_URL: "https://gateway.example.test/mcp/customer", MCP_PRODUCT_URL: "https://gateway.example.test/mcp/product",
   MCP_APPLICATION_URL: "https://gateway.example.test/mcp/application", MCP_CLAIM_URL: "https://gateway.example.test/mcp/claim",
   MCP_POLICY_URL: "https://gateway.example.test/mcp/policy",
@@ -67,6 +67,38 @@ function run(events: unknown[], failureReporter?: (value: unknown) => void, case
 }
 
 describe("live turn failure evidence", () => {
+  it("runs repeated fresh turns beyond former process quotas and snapshot comparison with no detail GET", async () => {
+    const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
+    const toolCalls: Entity[] = [];
+    setupClients(async (entity) => { toolCalls.push(entity); return scenarios.S1.facts[entity]; });
+    const network = vi.fn(async (input: unknown) => new Response(JSON.stringify((input instanceof Request ? input.url : String(input)).includes("/jev/") ? native : {}), { status: 200 }));
+    vi.stubGlobal("fetch", network);
+    generateTextMock.mockImplementation(async ({ model, stopWhen, maxRetries }: { model: { fetch: typeof fetch }; stopWhen?: unknown; maxRetries: number }) => {
+      expect(maxRetries).toBe(0);
+      if (stopWhen) expect(stopWhen).toEqual({ steps: 6 });
+      await model.fetch("https://gateway.example.test/v1/insurance-normal/chat/completions", { method: "POST" });
+      return { text: "synthetic response" };
+    });
+    for (let index = 0; index < 5; index += 1) {
+      const result = await run([]);
+      expect(result.status).toBe("completed");
+      expect(result.gatewayRequestCount).toBe(2);
+      expect(result.jevAttemptReserved).toBe(1);
+      expect(result.liveGetCount).toBe(4);
+      expect(result.turnUsage).toEqual({ phaseAGenerations: 1, supplementGenerations: 1, mcpInvocations: 4 });
+      expect(result).not.toHaveProperty("processBudgetUsage");
+    }
+    expect(toolCalls).toHaveLength(20);
+    expect(network).toHaveBeenCalledTimes(15); // ten normal and five native Jev requests, all mocked.
+    const compared = await runLiveTurn({ caseId: "S1", inquiry: "synthetic comparison", requestId: nextId(), parentSnapshot: scenarios.S1.facts, failureReporter: () => {} });
+    expect(compared.status).toBe("completed");
+    expect(compared.source).toBe("parent_snapshot");
+    expect(compared.liveGetCount).toBe(0);
+    expect(compared.toolStatus.invocationCount).toBe(4); // local snapshot reads, not business GETs.
+    expect(toolCalls).toHaveLength(20);
+    expect(network).toHaveBeenCalledTimes(18); // comparison still reruns normal LLM, Jev and supplement.
+  });
+
   it.each(["completed", "failed"] as const)("separates producer success reason from %s supplement status", async (supplementStatus) => {
     const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
     const before = JSON.stringify(native);

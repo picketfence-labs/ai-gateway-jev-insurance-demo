@@ -3,7 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, type ToolSet } from "ai";
 import { AttemptRegistry, executeAtMostOnce, buildNativeRequest, parseNativeDecision } from "./jev";
 import { TurnLedger, executeScopedMcpCall, operationIds } from "./ledger";
-import { ProcessUsageBudget, TurnLimits, validateLiveConfig } from "./live-config";
+import { TurnUsageCounter, validateLiveConfig } from "./live-config";
 import { createGatewayApiKeyFetch } from "./gateway-auth";
 import { ContractError } from "./projection";
 import { runDecisionPhases } from "./orchestration";
@@ -12,7 +12,6 @@ import { trustedSnapshots } from "./snapshot-store";
 import { serializeConversationContext, validateConversationHistory, type ConversationTurn } from "./conversation";
 import type { SafeToolReceipt } from "./chat-state";
 
-const processBudget = new ProcessUsageBudget();
 
 // Server-only Gateway error diagnostics. Never expose body/headers to UI.
 export async function recordGatewayFailure(response: Response, phase: "agent" | "supplement" | "jev", env: Record<string, string | undefined> = process.env, report: (value: unknown) => void = (value) => console.error(JSON.stringify(value))) {
@@ -109,7 +108,6 @@ export function classifyHostFailure(error: unknown): Array<{ type: string; categ
     else if (["Application references do not match the acquired records", "Claim references do not match the acquired records"].includes(message)) category = "related_facts_invalid";
     else if (/^Required (customer|product|application|claim|policy) fact is missing$/.test(message)) category = "missing_required_fact";
     else if (message === "Expected an object response" || /^Invalid [a-z_]+$/.test(message) || /^Response (customer|product|application|claim|policy)_id does not match request$/.test(message)) category = "projection_rejected";
-    else if (["Gateway request budget exhausted", "Per-turn Gateway generation limit reached", "MCP tool invocation budget exhausted", "Jev attempt budget exhausted"].includes(message)) category = "host_budget_exhausted";
     else if (type === "ContractError") category = "contract_rejected";
     else if (type === "AI_ToolChoiceViolationError") category = "model_tool_choice_violation";
     else if (["TypeError", "RangeError", "SyntaxError", "ReferenceError", "URIError", "EvalError", "AggregateError"].includes(type)) category = "javascript_runtime_error";
@@ -170,7 +168,7 @@ function extractMcpRecord(result: unknown): unknown {
   return record;
 }
 
-function gatewayModel(config: NonNullable<Extract<ReturnType<typeof validateLiveConfig>, { ok: true }>['config']>, requests: { count: number }, turnLimits: TurnLimits, phase: "agent" | "supplement", recordFailure: FailureRecorder) {
+function gatewayModel(config: NonNullable<Extract<ReturnType<typeof validateLiveConfig>, { ok: true }>['config']>, requests: { count: number }, turnCounter: TurnUsageCounter, phase: "agent" | "supplement", recordFailure: FailureRecorder) {
   const base = new URL(config.gatewayBaseUrl);
   const routeUrl = `${base.origin}${base.pathname.replace(/\/+$/, "")}/chat/completions`;
   const gatewayFetch = createGatewayApiKeyFetch(routeUrl, config.gatewayApiKey, async (input, init) => {
@@ -182,8 +180,7 @@ function gatewayModel(config: NonNullable<Extract<ReturnType<typeof validateLive
     } catch (error) { recordFailure(phase === "agent" ? "normal_fetch" : "supplement", error); throw error; }
   });
   const timeoutFetch: typeof fetch = async (input, init) => {
-    if (!turnLimits.reserveGeneration(phase)) throw new Error("Per-turn Gateway generation limit reached");
-    if (!processBudget.reserveGatewayCall()) throw new Error("Gateway request budget exhausted");
+    turnCounter.recordGeneration(phase);
     requests.count += 1;
     return gatewayFetch(input, init);
   };
@@ -192,7 +189,6 @@ function gatewayModel(config: NonNullable<Extract<ReturnType<typeof validateLive
 }
 
 async function callNativeJev(config: NonNullable<Extract<ReturnType<typeof validateLiveConfig>, { ok: true }>['config']>, body: ReturnType<typeof buildNativeRequest>, recordFailure: FailureRecorder) {
-  if (!processBudget.reserveJevAttempt()) throw new Error("Jev attempt budget exhausted");
   const gatewayFetch = createGatewayApiKeyFetch(config.jevUrl, config.jevApiKey, async (input, init) =>
     fetch(input, { ...init, signal: timeoutSignal(config.jevTimeoutMs) }),
   );
@@ -222,14 +218,11 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
   const checked = validateLiveConfig(process.env);
   if (!checked.ok) throw new Error(checked.reason);
   const config = checked.config;
-  if (!processBudget.configure(config.gatewayRequestBudget, config.jevAttemptBudget, config.mcpToolInvocationBudget)) {
-    throw new Error("Live budget changed during this process; restart with one approved budget.");
-  }
   const scenario = scenarios[options.caseId];
   const ledger = new TurnLedger(options.caseId, options.parentSnapshot ? "parent_snapshot" : "live_api", options.parentSnapshot);
   const clients: Array<{ close?: () => Promise<void> | void }> = [];
   const requestCounter = { count: 0 };
-  const turnLimits = new TurnLimits();
+  const turnCounter = new TurnUsageCounter();
   const attemptRegistry = new AttemptRegistry();
   const toolReceipts: SafeToolReceipt[] = [];
   const hostExecutors = new Map<Entity, (id: string) => Promise<unknown>>();
@@ -243,8 +236,8 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       try { causes = classifyHostFailure(error); }
       catch { causes = [{ type: "unknown_error_type", category: "classification_unavailable" }]; }
       const evidence = { kind: "live_host_failure", phase, outcome, ...(tool ? { tool } : {}), ...(httpStatus === undefined ? {} : { httpStatus }), causes,
-        hostReservations: { gateway: requestCounter.count, ...turnLimits.usage(), jevAttemptReserved: attemptRegistry.has(runId) ? 1 : 0, jevAttemptsProcess: processBudget.usage().jevAttempts },
-        reservationScope: "process_and_turn_counters_not_wire_or_billing", acquiredKinds: requiredEntities(options.caseId).filter((entity) => ledger.has(entity)),
+        hostReservations: { gateway: requestCounter.count, ...turnCounter.usage(), jevAttemptReserved: attemptRegistry.has(runId) ? 1 : 0 },
+        reservationScope: "turn_counters_not_wire_or_billing", acquiredKinds: requiredEntities(options.caseId).filter((entity) => ledger.has(entity)),
         receipts: toolReceipts.map(({ tool: entity, status, actor }) => ({ tool: entity, status, actor })) };
       (options.failureReporter ?? ((value: unknown) => console.error(JSON.stringify(value))))(evidence);
     } catch { /* Diagnostic failure never changes the original result or error. */ }
@@ -260,10 +253,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       const original = available[allowedName] as { execute?: (input: unknown, options?: unknown) => Promise<unknown>; [key: string]: unknown } | undefined;
       if (!original || typeof original.execute !== "function") throw new Error(`Approved detail tool is unavailable: ${key}`);
       const invoke = async (args: unknown, callOptions: unknown, actor: SafeToolReceipt["actor"]) => {
-        if (!turnLimits.reserveMcpInvocation() || !processBudget.reserveMcpInvocation()) {
-          toolReceipts.push({ tool: entity, status: "rejected", source: "not_sent", actor });
-          throw new Error("MCP tool invocation budget exhausted");
-        }
+        turnCounter.recordMcpInvocation();
         try {
           const result = await executeScopedMcpCall(
             ledger,
@@ -298,8 +288,8 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       tools[allowedName] = wrapped;
     }
 
-    const agentModel = gatewayModel(config, requestCounter, turnLimits, "agent", recordFailure);
-    const supplementModel = gatewayModel(config, requestCounter, turnLimits, "supplement", recordFailure);
+    const agentModel = gatewayModel(config, requestCounter, turnCounter, "agent", recordFailure);
+    const supplementModel = gatewayModel(config, requestCounter, turnCounter, "supplement", recordFailure);
     stage = "acquisition";
     let acquisition: Awaited<ReturnType<typeof generateText>>;
     try { acquisition = await generateText({
@@ -384,9 +374,8 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       reason: result.status !== "completed" ? result.reason : null,
       supplementStatus: result.status === "completed" ? result.supplementStatus : null,
       gatewayRequestCount: requestCounter.count,
-      processBudgetUsage: processBudget.usage(),
-      turnUsage: turnLimits.usage(),
-      toolStatus: { invocationCount: turnLimits.usage().mcpInvocations, receipts: toolReceipts },
+      turnUsage: turnCounter.usage(),
+      toolStatus: { invocationCount: turnCounter.usage().mcpInvocations, receipts: toolReceipts },
       snapshotId: savedSnapshot?.snapshotId ?? null,
       factsHash: savedSnapshot?.factsHash ?? options.parentSnapshotHash ?? null,
     };

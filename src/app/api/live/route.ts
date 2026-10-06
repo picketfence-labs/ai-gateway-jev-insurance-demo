@@ -42,7 +42,7 @@ export async function dispatchLivePayload(body: LivePayload, env: NodeJS.Process
   });
   if (execution.status !== "created" && execution.status !== "replayed") {
     if (execution.status === "conflict") return { status: 409, payload: { error: "This request ID was already reserved for a different live turn." } };
-    return { status: 503, payload: { error: "The process-local live request ledger is full; restart before another live turn." } };
+    return { status: 503, payload: { error: "The process-local live request ledger is full of in-flight requests; wait for completion before another turn." } };
   }
   return execution.result;
 }

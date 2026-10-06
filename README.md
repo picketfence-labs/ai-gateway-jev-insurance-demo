@@ -33,7 +33,7 @@ docker compose --env-file .env.example config --quiet
 ```
 
 The existing GitHub Actions workflow runs on pushes and pull requests with
-Node.js 22 and live approval flags disabled; it runs lint, typecheck, 64 unit
+Node.js 22 and live approval flags disabled; it runs lint, typecheck, 65 unit
 tests, secret scanning, and a production build. These checks do not validate
 the Compose images or live integrations; see [test plan](docs/test-plan.md).
 
@@ -73,7 +73,7 @@ npm run secret-scan
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
-Current UI refinement checks pass lint, typecheck, **64 unit tests**, secret scan (60 files, zero findings), production build and independent review. Actual component rendering and native HTML disclosure behavior were checked with saved native responses and mock conversation turns, without new paid calls. See [current UI evidence](docs/ai-gateway-compose.md#user-facing-ui-refinement-offline-verification-only). Offline checks are separate from the recorded single S1 live checkpoint.
+Current quota-removal checks pass lint, typecheck, **65 unit tests**, secret scan (60 files, zero findings), production build and independent review. Actual component rendering and native HTML disclosure behavior were checked with saved native responses and mock conversation turns, without new paid calls. Process/per-turn flow quotas were removed; six-step acquisition stopping, timeouts, retry zero and one Jev evaluation per turn remain. Five repeated fresh turns and a zero-GET snapshot comparison passed through mocked live transport. See [current quota-removal contract](docs/ai-gateway-compose.md#continuous-owner-only-demo-quota-removal) and [current UI evidence](docs/ai-gateway-compose.md#user-facing-ui-refinement-offline-verification-only). Offline checks are separate from the recorded single S1 live checkpoint.
 
 ## Demo boundaries
 

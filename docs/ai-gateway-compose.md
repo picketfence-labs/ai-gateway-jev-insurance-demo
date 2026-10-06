@@ -9,6 +9,43 @@ candidates only and do not imply that those Konnect routes exist. Copy the
 template only to an ignored local `.env` when an owner supplies real values.
 Do not add certs, keys, provider credentials, or inbound API keys to Git.
 
+## Continuous owner-only demo: quota removal
+
+Current web image: `sha256:cde72cf3a275cbc05be59ce026aa1128a6dd578034a1afc2a8ec058e8c69b006`.
+Web-only recreation finished at the 2026-10-06 **21:16:30 JST** bash date checkpoint.
+DP/five APIs were retained; loopback `127.0.0.1:3000`, root HTTP 200 and
+readiness `ready: true` were verified. The three obsolete budget names are absent
+from tracked Compose/example, ignored local env/overlay, and the running web's
+environment (name-only projection, no values printed). Offline lint, typecheck,
+65 tests, secret scan (60 files / 0 findings), Next build, Docker web build and
+diff check passed. Independent review passed the repeated-turn, counter and
+registry boundaries. No agent inference/API POST was sent for this repair.
+The old UI image and prior actual S1 evidence below remain historical.
+
+The process-wide Gateway/Jev/MCP budgets and per-turn request/tool quota rejection
+are removed. Their three obsolete environment variables are no longer required
+or injected by Compose. The SDK acquisition stop at six steps, call timeouts
+(normal 20s / Jev 10s / MCP 5s in the reviewed local configuration), retries zero,
+one Jev evaluation per turn, scope/projection/ledger validation, and retained-ID
+replay protection remain. Counters are observations, not billing totals.
+The registry evicts oldest completed responses at 4,096 entries, never in-flight
+entries; duplicate protection covers retained IDs only (not evicted IDs/restart).
+
+Read-only logs from 20:52:16–21:00:21 JST on 2026-10-06 contained a fixed
+`host_budget_exhausted` failure, process Jev reservation 1, failed-turn Jev
+reservation 0, and application/customer receipts. There was no case/request
+correlation, so this cannot be asserted to be the user's reported claim turn.
+The preceding configuration was 7 normal / 1 Jev / 8 MCP per process and could
+stop a subsequent turn. No model/API POST was used to diagnose or test this fix.
+Historical traffic limits and evidence below describe earlier single-turn work,
+not the current runtime contract. Agent-generated paid calls for this repair: 0.
+
+Comparison OFF starts fresh acquisition. ON reuses server-held same-case,
+projected facts (10-minute lifetime, 32 snapshots), performs zero detail GETs,
+and reruns normal LLM/Jev/supplement. Snapshot reads and MCP discovery are not
+business GETs. Expired/missing snapshots fail closed without fresh-GET fallback;
+conversation text is never used to fill the facts ledger.
+
 ## User-facing UI refinement (offline verification only)
 
 Latest UI image: `sha256:db8e60ad2594dc22204e32bb6acec6c426b26e034837b70a78960f60d73fd517`.
@@ -147,7 +184,7 @@ Earlier checkpoint sections below are historical, not the current acceptance sta
   fetch adapter removes SDK `Authorization` and only sends a key to its exact
   configured Gateway origin and route; redirects are rejected. These separate
   keys share one strategy and do not provide per-route authorization isolation.
-- Owner-approved request budgets/timeouts. The normal AI SDK calls set
+- Owner-approved call timeouts. The normal AI SDK calls set
   `maxRetries: 0`, and Jev host fetch has one attempt, but these do not disable
   AI Gateway data-plane retries. Both model configurations have since read back
   with `config.balancer.retries: 0` and `failover_criteria: []`; this is config
@@ -163,7 +200,7 @@ check is process health only and cannot prove those conditions.
 The normal LLM uses optional MCP tools (`toolChoice: auto`). Only after a
 successful normal-model completion may the host fetch still-missing required
 facts for the selected synthetic case, through the same scoped wrappers,
-projection, turn-local ledger, and existing budgets. It derives IDs only from
+projection, turn-local ledger, and call timeouts. It derives IDs only from
 the selected root and relationships in projected facts acquired this turn;
 successful GETs are reused, never repeated. These calls are disclosed before
 submission and shown in Japanese receipts as host/app evaluation preparation,

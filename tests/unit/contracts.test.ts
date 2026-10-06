@@ -6,7 +6,7 @@ import { buildNativeRequest, AttemptRegistry, executeAtMostOnce, parseNativeDeci
 import { INTAKE_RUBRIC } from "@/lib/rubric";
 import { runDecisionPhases } from "@/lib/orchestration";
 import { scenarios } from "@/lib/scenarios";
-import { isRequestId, LiveRequestRegistry, ProcessUsageBudget, TurnLimits, validateLiveConfig } from "@/lib/live-config";
+import { isRequestId, LiveRequestRegistry, TurnUsageCounter, validateLiveConfig } from "@/lib/live-config";
 import { dispatchLivePayload } from "@/app/api/live/route";
 import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
@@ -455,9 +455,9 @@ describe("offline and live gates", () => {
   it("fails live closed before network even with complete-looking env", () => {
     const env = {
       LIVE_ACCESS_APPROVED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "1",
-      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
-      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000",
+      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000",
       AI_GATEWAY_JEV_API_KEY: "present",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
 } as unknown as NodeJS.ProcessEnv;
@@ -467,9 +467,9 @@ describe("offline and live gates", () => {
   it("dispatches to a mock agent only after mode, separate approval, and full config validate", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2",
-      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
-      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000",
+      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
 } as unknown as NodeJS.ProcessEnv;
     const agent = vi.fn(async () => ({ status: "mocked" }));
@@ -511,8 +511,8 @@ describe("offline and live gates", () => {
   it("validates and forwards only bounded text history to the live agent", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
-      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
     } as unknown as NodeJS.ProcessEnv;
     const agent = vi.fn(async () => ({ status: "mocked" }));
@@ -528,10 +528,10 @@ describe("offline and live gates", () => {
     const env: Record<string, string> = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true",
       AI_GATEWAY_BASE_URL: "https://example.invalid/v1/insurance-normal", AI_GATEWAY_API_KEY: "normal-dummy",
-      AI_GATEWAY_MODEL: "insurance-normal", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "7",
+      AI_GATEWAY_MODEL: "insurance-normal", AI_GATEWAY_TIMEOUT_MS: "5000",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev/v1/systemone", AI_GATEWAY_JEV_API_KEY: "jev-dummy",
-      AI_GATEWAY_JEV_MODEL: "insurance-jev-decisions", AI_GATEWAY_JEV_TIMEOUT_MS: "10000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
-      MCP_API_KEY: "synthetic-mcp-key-not-credential", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      AI_GATEWAY_JEV_MODEL: "insurance-jev-decisions", AI_GATEWAY_JEV_TIMEOUT_MS: "10000",
+      MCP_API_KEY: "synthetic-mcp-key-not-credential", MCP_TIMEOUT_MS: "5000",
       MCP_CUSTOMER_URL: "https://example.invalid/mcp/customer", MCP_PRODUCT_URL: "https://example.invalid/mcp/product",
       MCP_APPLICATION_URL: "https://example.invalid/mcp/application", MCP_CLAIM_URL: "https://example.invalid/mcp/claim",
       MCP_POLICY_URL: "https://example.invalid/mcp/policy",
@@ -574,8 +574,8 @@ describe("offline and live gates", () => {
   it("replays same live request ID once and rejects payload reuse without another agent call", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
-      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
     } as unknown as NodeJS.ProcessEnv;
     let release!: (value: { status: string }) => void;
@@ -627,28 +627,35 @@ describe("offline and live gates", () => {
     await expect(submitDemoRequest({ mode: "live", caseId: "S1", inquiry: "x", failure: "none", comparison: false }, fetcher)).rejects.toThrow(/request ID/);
   });
 
-  it("applies the configured per-process budgets without implicit defaults", () => {
-    const budget = new ProcessUsageBudget();
-    expect(budget.reserveGatewayCall()).toBe(false);
-    expect(budget.configure(2, 1, 3)).toBe(true);
-    expect(budget.reserveGatewayCall()).toBe(true);
-    expect(budget.reserveGatewayCall()).toBe(true);
-    expect(budget.reserveGatewayCall()).toBe(false);
-    expect(budget.reserveJevAttempt()).toBe(true);
-    expect(budget.reserveJevAttempt()).toBe(false);
-    expect(budget.reserveMcpInvocation()).toBe(true);
-    expect(budget.configure(2, 1, 4)).toBe(false);
+  it("evicts only completed request records while retaining replay/conflict and all in-flight work", async () => {
+    const registry = new LiveRequestRegistry();
+    const calls = vi.fn(async () => "completed");
+    for (let index = 0; index < 4096; index += 1) await registry.execute(`completed-${index}`, "same", calls);
+    expect(await registry.execute("completed-4095", "same", calls)).toMatchObject({ status: "replayed" });
+    expect(await registry.execute("completed-4095", "other", calls)).toEqual({ status: "conflict" });
+    expect(await registry.execute("new", "same", calls)).toMatchObject({ status: "created" });
+    expect(await registry.execute("completed-0", "same", calls)).toMatchObject({ status: "created" }); // evicted IDs are outside the retained replay guarantee.
+    const inFlight = new LiveRequestRegistry();
+    let resolve!: (value: string) => void;
+    const pending = new Promise<string>((done) => { resolve = done; });
+    const started = Array.from({ length: 4096 }, (_, index) => inFlight.execute(`pending-${index}`, "same", () => pending));
+    expect(await inFlight.execute("new", "same", calls)).toEqual({ status: "full" });
+    expect(await inFlight.execute("pending-0", "different", calls)).toEqual({ status: "conflict" });
+    const replay = inFlight.execute("pending-0", "same", calls);
+    resolve("done");
+    await Promise.all(started);
+    expect(await replay).toEqual({ status: "replayed", result: "done" });
+    expect(await inFlight.execute("new", "same", calls)).toMatchObject({ status: "created" });
   });
 
-  it("caps each live turn at six agent generations, eight tool calls, and one supplement", () => {
-    const limits = new TurnLimits();
-    for (let i = 0; i < 6; i += 1) expect(limits.reserveGeneration("agent")).toBe(true);
-    expect(limits.reserveGeneration("agent")).toBe(false);
-    expect(limits.reserveGeneration("supplement")).toBe(true);
-    expect(limits.reserveGeneration("supplement")).toBe(false);
-    for (let i = 0; i < 8; i += 1) expect(limits.reserveMcpInvocation()).toBe(true);
-    expect(limits.reserveMcpInvocation()).toBe(false);
+  it("records calls without applying process or per-turn flow quotas", () => {
+    const counter = new TurnUsageCounter();
+    for (let i = 0; i < 9; i += 1) { counter.recordGeneration("agent"); counter.recordMcpInvocation(); }
+    counter.recordGeneration("supplement");
+    counter.recordGeneration("supplement");
+    expect(counter.usage()).toEqual({ phaseAGenerations: 9, supplementGenerations: 2, mcpInvocations: 9 });
   });
+
 });
 
 describe("bounded chat history and per-turn evidence", () => {

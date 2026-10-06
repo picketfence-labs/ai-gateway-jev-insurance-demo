@@ -83,6 +83,7 @@ export default function Home() {
       <form onSubmit={runPreview}>
         <label>ケース<select aria-label="ケース" value={caseId} disabled={busy} onChange={e => { const next=e.target.value as CaseId; if(next!==caseId) resetSession(); setCaseId(next); }}>{(["S1","S2","S3"] as const).map(id=><option key={id} value={id}>{caseLabels[id].replace(/^S[123] · /, "")}</option>)}</select></label>
         <label className="check"><input aria-label="同じ事実で比較" type="checkbox" checked={comparison} disabled={!parentSnapshotId || busy} onChange={e=>{setComparison(e.target.checked);setPendingRequestId(null);}} />前回取得した同じ事実で問い合わせを比較</label>
+        <p className="small">オンは前回の事実を使い、APIの再取得なしでLLMとJevを再実行します。オフは現在の事実を新しく取得します。保存事実の期限が切れた場合、比較は実行できません。</p>
         <label>お問い合わせ（最大2,000文字）<textarea aria-label="お問い合わせ" rows={3} maxLength={2000} value={inquiry} onChange={e=>{setInquiry(e.target.value);setPendingRequestId(null);}} placeholder="お問い合わせを入力してください" /></label>
         <p className="small">LLMが必要に応じて事実取得を選びます。正常に回答を完了しても必須事実が不足する場合は、アプリが同じ範囲の読み取り専用ツールで評価準備を補います。取得に失敗した場合はJevを実行しません。</p>
         <button type="submit" disabled={busy || !liveReady || !inquiry.trim()}>{busy ? "送信中…" : "送信する"}</button>
