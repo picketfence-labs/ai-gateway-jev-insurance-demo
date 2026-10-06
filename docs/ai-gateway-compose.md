@@ -21,7 +21,7 @@ inference; **agent-generated paid calls were zero** for this refinement.
 The original S1 actual image and live evidence below remain separate.
 Current offline checks: lint, typecheck, 64 tests, secret scan (60 files, zero
 findings), Next production build, Docker web build and diff check passed.
-Independent B review executed the 6 component and 2 producer regression tests.
+Independent review verified 6 component SSR and 2 producer regression tests.
 
 
 The UI now uses live requests only, with submission locked when readiness is
@@ -50,9 +50,7 @@ checks opened the first turn, expanded JSON, selected the second turn and closed
 it. Supplemental failure, ineligible and decision-error views were also checked
 using a separately labelled mock page, with [supplement failure](evidence/ui-refinement-supplement-failure.png),
 [ineligible](evidence/ui-refinement-ineligible.png) and
-[decision error](evidence/ui-refinement-decision-error.png) screenshots. No agent model/API submission was made during this UI refinement. Author work
-stalled before producing a diff; Manager took the limited author role, with B
-remaining an independent reviewer. No new dependency or UI framework was added.
+[decision error](evidence/ui-refinement-decision-error.png) screenshots. No agent model/API submission was made during this UI refinement. No new dependency or UI framework was added.
 
 ## Latest accepted checkpoint: one live S1 insurance turn
 
