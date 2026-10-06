@@ -258,6 +258,43 @@ the Konnect model-registration error envelope. Worker A checked the published
 contracts, the Manager made the Context7 calls, and Worker B independently
 reviewed the structural comparison and stop boundary.
 
+### Local loader defect and corrected preflight
+
+One newly authorized POST function call ran between 09:19:37 and 09:19:38 JST
+on 2026-10-06, using `86428f1` and the unchanged reviewed payload. The Manager's
+ad-hoc wrapper called `request_models` first, received its result, then called
+`known_secret_values` again before output. That second call raised `TypeError`:
+`Path.open` does not accept `opener`. The function result was not printed, so
+the POST HTTP status and delivery cannot be established. No further POST was
+attempted. A non-secret stack trace appeared, failing the no-traceback rule;
+raw response bodies, headers and credentials were not printed.
+
+The defect was also present in the script itself, not just the wrapper.
+Inside `classify`, the same loader error was suppressed as
+`message_redaction: unavailable`, which would preserve status but lose the
+explanation. The wrapper then lost the returned evidence entirely. Previous
+injected-secret tests bypassed that loader; other canary tests could pass when
+all explanations were suppressed. Author, independent review and Coordinator
+spot-check did not identify the unsupported Python API before execution.
+
+The limited repair uses built-in `open` with `O_NOFOLLOW` and loads all known
+redaction values once inside `request_models`, before HTTP. Loader failure
+returns a fixed `redaction_preflight_failed` result with delivery
+`not_attempted`; there is no post-call loader or sanity-check wrapper. The
+actual-file integration test uses temporary `0600` overlay/handoff files and
+the same POST entry point with a mocked HTTP 400: it asserts useful redacted
+explanations and no canaries. Unsafe file permissions assert zero opener calls.
+Canary fixtures now supply known values and assert that an explanation exists,
+rather than treating its suppression as success. Seven offline tests pass.
+
+One owner-authorized read-only parts check through the repaired function ran
+09:22:38–09:22:39 JST: HTTP 200, only `insurance-normal`; no Jev model was present
+in that listing. This validates the local loader and verified-TLS GET path,
+not POST error capture or live Jev operation. No further HTTP, MCP creation,
+DP startup or host inference traffic followed. A new POST remains paused; the
+next decision must account for this execution defect, not assume another
+unchanged trial will explain the original 400.
+
 The three inbound key values are kept only in ignored `.env.live.local`
 (mode `0600`); the new local DP private key is in ignored
 `certs/ai-gateway-client.key` (mode `0600`), and its public certificate is

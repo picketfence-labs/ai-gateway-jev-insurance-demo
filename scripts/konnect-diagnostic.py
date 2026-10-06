@@ -15,6 +15,7 @@ import re
 import socket
 import ssl
 import stat
+import tempfile
 import unittest
 from unittest.mock import patch
 import urllib.error
@@ -42,7 +43,7 @@ def known_secret_values():
     for name in (".env.live.local", ".env.upstream-handoff.local"):
         path = root / name
         try:
-            with path.open("r", opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW)) as file:
+            with open(path, "r", opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW)) as file:
                 if stat.S_IMODE(os.fstat(file.fileno()).st_mode) != 0o600:
                     raise ValueError("Secret redaction file permissions")
                 text = file.read(65536)
@@ -197,6 +198,14 @@ def request_models(method="GET", *, allow_post=False, opener=None):
     token = os.environ.get("KONNECT_TOKEN")
     if not token:
         return {"ok": False, "category": "missing_authentication"}
+    # Load redaction inputs once, before any HTTP; never re-read them afterwards.
+    try:
+        secrets = known_secret_values()
+    except Exception as error:
+        kind = type(error).__name__
+        return {"ok": False, "category": "redaction_preflight_failed", "method": method,
+                "delivery": "not_attempted",
+                "exception_type": kind if kind in {"TypeError", "ValueError", "OSError", "PermissionError", "JSONDecodeError"} else "UnexpectedError"}
     try:
         data = payload_bytes() if method == "POST" else None
         context = ssl.create_default_context()  # OS/default roots, never bypassed.
@@ -212,7 +221,7 @@ def request_models(method="GET", *, allow_post=False, opener=None):
                             and row.get("name") in {"insurance-normal", "insurance-jev-decisions"}}) if isinstance(rows, list) else []
             result = {"ok": True, "http_status": response.status, "model_names": names}
     except Exception as error:
-        result = classify(error)
+        result = classify(error, secrets=secrets)
     result.update(method=method, request_body_sha256=BODY_HASH if method == "POST" else None)
     return result
 
@@ -222,9 +231,11 @@ class DiagnosticTests(unittest.TestCase):
         error = urllib.error.HTTPError(URL, 400, "CANARY-SECRET", {"Authorization": "CANARY-SECRET"},
             io.BytesIO(json.dumps({"code": "VALIDATION_ERROR", "message": "required CANARY-SECRET",
                                   "fields": {"config.balancer.algorithm": "CANARY-SECRET", "CANARY-SECRET": "x"}}).encode()))
-        result = classify(error)
+        with patch.dict(os.environ, {"DIAGNOSTIC_TEST_TOKEN": "CANARY-SECRET"}):
+            result = classify(error)
         self.assertEqual(result["fields"], ["config.balancer.algorithm"])
         self.assertEqual(result["category"], "required_field_validation")
+        self.assertEqual(result["explanations"][0]["text"], "required [REDACTED]")
         self.assertNotIn("CANARY-SECRET", json.dumps(result))
         generic = classify(urllib.error.HTTPError(URL, 400, "CANARY-SECRET", None,
                            io.BytesIO(b'{"code":"bad-request"}')))
@@ -242,7 +253,8 @@ class DiagnosticTests(unittest.TestCase):
 
     def test_invalid_body_and_untrusted_code(self):
         for data in (b"CANARY-SECRET", b'{"code":"CANARY-SECRET","message":"CANARY-SECRET"}'):
-            result = classify(urllib.error.HTTPError(URL, 400, "CANARY-SECRET", None, io.BytesIO(data)))
+            with patch.dict(os.environ, {"DIAGNOSTIC_TEST_TOKEN": "CANARY-SECRET"}):
+                result = classify(urllib.error.HTTPError(URL, 400, "CANARY-SECRET", None, io.BytesIO(data)))
             self.assertEqual(result["http_status"], 400)
             self.assertNotIn("CANARY-SECRET", json.dumps(result))
 
@@ -304,6 +316,43 @@ class DiagnosticTests(unittest.TestCase):
                           io.BytesIO(body)), secrets={"CANARY-SECRET"})
         self.assertEqual(result["explanations"][0]["text"], "missing targets.0.provider value [REDACTED]")
         self.assertNotIn("CANARY-SECRET", json.dumps(result))
+
+    def test_real_files_post_error_and_preflight_failure(self):
+        template = (Path(__file__).resolve().parent.parent /
+                    "config/konnect-ai-gateway/model-jev-typesafe.json").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config/konnect-ai-gateway").mkdir(parents=True)
+            (root / "config/konnect-ai-gateway/model-jev-typesafe.json").write_text(template)
+            live = root / ".env.live.local"
+            live.write_text("AI_GATEWAY_API_KEY=DUMMY-INBOUND-CANARY\n")
+            handoff = root / ".env.upstream-handoff.local"
+            handoff.write_text('{"JEV_API_KEY":"DUMMY-UPSTREAM-CANARY"}')
+            live.chmod(0o600)
+            handoff.chmod(0o600)
+            class Opener:
+                calls = 0
+                def open(self, request, timeout):
+                    self.calls += 1
+                    assert request.get_method() == "POST"
+                    body = {"error": {"message": "Invalid field config.balancer.algorithm DUMMY-TOKEN-CANARY DUMMY-INBOUND-CANARY DUMMY-UPSTREAM-CANARY"}}
+                    raise urllib.error.HTTPError(URL, 400, "unused", None, io.BytesIO(json.dumps(body).encode()))
+            opener = Opener()
+            with patch.dict(globals(), {"__file__": str(root / "scripts/konnect-diagnostic.py")}), \
+                 patch.dict(os.environ, {"KONNECT_TOKEN": "DUMMY-TOKEN-CANARY"}, clear=True):
+                result = request_models("POST", allow_post=True, opener=opener)
+                self.assertEqual(opener.calls, 1)
+                self.assertEqual(result["http_status"], 400)
+                self.assertNotIn("message_redaction", result)
+                self.assertIn("Invalid field config.balancer.algorithm", result["explanations"][0]["text"])
+                self.assertNotIn("CANARY", json.dumps(result))
+                # Same actual loader, unsafe file mode: HTTP opener must not run.
+                live.chmod(0o644)
+                opener.calls = 0
+                result = request_models("POST", allow_post=True, opener=opener)
+                self.assertEqual(result["category"], "redaction_preflight_failed")
+                self.assertEqual(result["delivery"], "not_attempted")
+                self.assertEqual(opener.calls, 0)
 
 
 if __name__ == "__main__":
