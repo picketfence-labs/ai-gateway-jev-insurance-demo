@@ -29,11 +29,13 @@ Exclude Simulation, list/search/write tools, real personal data, underwriting, p
 
 ## A: Agent calls tools
 
-The UI selects S1/S2/S3 and accepts editable synthetic inquiry text. The normal LLM chooses the GET tools and their order. The host does not prefetch all facts or silently complete the agent's plan.
+The UI selects S1/S2/S3 and accepts editable synthetic inquiry text. The normal LLM has optional GET tools and chooses whether to call them and their order (`toolChoice: auto`). After a successful normal-model completion only, the host may fetch the still-missing required facts for the selected synthetic case. This bounded completion is visible as host/app-initiated MCP work; it is not represented as an LLM tool call. A normal LLM transport/SDK failure stops the turn and never triggers host completion.
 
 Tool wrappers allow only the preset root ID and IDs discovered from successful API responses. Arbitrary URLs, unrelated IDs, undiscovered references, list/write tools, and a Jev tool are rejected before network access. Valid dependency-independent calls may run in parallel.
 
-Record successful projected tool results in a turn-local ledger. Application requires application/customer/product; claim requires claim/customer/policy/product. LLM statements and prior conversation do not satisfy this set. Unused tools, incomplete acquisition, scope violations, or limits produce an explicit unassessed result.
+Record successful projected tool results in a turn-local ledger. Application requires application/customer/product; claim requires claim/customer/policy/product. LLM statements and prior conversation do not satisfy this set. Host completion may use only the selected case's root ID and relationship IDs discovered in projected facts actually acquired during this turn; static expected IDs may validate scope but are not an ID source. Never use prior-turn facts, arbitrary user IDs, or hidden REST calls. Reuse successful facts without duplicate GETs. Missing or inconsistent roots/references, scope violations, or exhausted limits stop before Jev and yield an explicit unassessed result. UI receipts identify each initiator as LLM or host/app evaluation preparation, in Japanese, and briefly disclose possible host completion before submission.
+
+The existing explicit same-facts comparison is a separate exception: its trusted server-owned `parent_snapshot` supplies the selected snapshot, with zero live GETs and no live fallback. Conversation history and implicit reuse of earlier facts remain prohibited as acquisition sources.
 
 ## Projection before SDK and stream
 
@@ -57,9 +59,9 @@ Editable user text has a separate disclosure boundary. API projection cannot rem
 
 ## B: Host calls Jev once
 
-Every submission for a selected scenario is an evaluation turn. Eligibility requires valid text/scope, the complete required tool ledger, valid types/nulls, all matching references, a projected snapshot, and remaining approved budget.
+Every submission for a selected scenario is an evaluation turn. Eligibility requires valid text/scope, the complete required tool ledger (from successful LLM-selected calls plus any bounded host completion after normal-model completion), valid types/nulls, all matching references, a projected snapshot, and remaining approved budget. LLM transport/SDK failure, incomplete host acquisition, or reference/scope errors stop before Jev.
 
-Reserve run/attempt before sending. Eligible turns make one request with three questions, at most one attempt. Incomplete facts, 404, type errors, missing fields, scope errors, or inconsistent references make zero Jev calls. No host auto-fetch fallback.
+Reserve run/attempt before sending. Eligible turns make one request with three questions, at most one attempt. Incomplete facts, 404, type errors, missing fields, scope errors, or inconsistent references make zero Jev calls. Host completion is limited to the still-missing selected-case facts under the same wrappers, ledger, projection, and budget; it cannot silently substitute for a failed normal LLM call.
 
 Send host-ledger facts, current inquiry, and versioned demo criteria as a JSON-string state. Do not mix LLM summaries into API facts. Timeouts and HTTP failures consume the attempt. Only an explicit new run with remaining budget can retry.
 

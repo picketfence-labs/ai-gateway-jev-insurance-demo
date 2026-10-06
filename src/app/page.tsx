@@ -7,7 +7,7 @@ import { submitDemoRequest, type DemoMode } from "@/lib/demo-submit";
 import { INTAKE_RUBRIC } from "@/lib/rubric";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, resetChatSession, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
 import { validateConversationHistory } from "@/lib/conversation";
-import { caseLabels, displayDecisionReason, displayFactField, displayFactValue, displaySource, displayState, displayToolStatus, displayWarning, entityLabel, localizedRubric, summarizeDecision } from "@/lib/ja-display";
+import { caseLabels, displayDecisionReason, displayFactField, displayFactValue, displayLiveMode, displaySource, displayState, displayToolStatus, displayWarning, entityLabel, localizedRubric, summarizeDecision } from "@/lib/ja-display";
 
 type Preview = {
   mode: string;
@@ -213,6 +213,7 @@ export default function Home() {
         {mode === "offline" && <label>サンプル表示の種類<select aria-label="サンプル表示の種類" value={failure} onChange={(e) => setFailure(e.target.value as OfflineFailure)}>{failures.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
         <label className="check"><input aria-label="比較モード" type="checkbox" checked={comparison} disabled={mode === "live" && !parentSnapshotId} onChange={(e) => { setComparison(e.target.checked); setPendingRequestId(null); }} /> {mode === "live" ? "前回のサーバー保持スナップショットと比較（実接続結果が必要）" : "親スナップショットのサンプルと比較"}</label>
         <label>お問い合わせ（最大2,000文字）<textarea aria-label="お問い合わせ" rows={3} maxLength={2000} value={inquiry} onChange={(e) => { setInquiry(e.target.value); setPendingRequestId(null); }} placeholder={mode === "live" ? "実接続リクエストの前にお問い合わせを入力してください" : "空欄の場合、選択したケースのサンプル文を使います"} /></label>
+        {mode === "live" && <p className="small">送信後、通常のLLMが必要に応じて読み取り専用ツールを選びます。LLMが正常に回答を完了した後も必須事実が不足する場合は、ホストが同じ範囲内のMCP GETで補うことがあります。LLMや取得に失敗した場合はJevを実行しません。</p>}
         <button type="submit" disabled={busy || (mode === "live" && (!liveReady || !inquiry.trim()))}>{busy ? "送信中…" : mode === "live" ? "実接続リクエストを送信" : "オフラインサンプルを表示"}</button>
       </form>
       {error && <p className="error" role="alert">{error}</p>}
@@ -230,14 +231,15 @@ export default function Home() {
         <h3>お問い合わせ</h3><p>{turn.inquiry}</p>
         {turn.replies.map((reply, replyIndex) => <div key={`${turn.id}-reply-${replyIndex}`} className="chat-reply"><h4>{reply.label}</h4><p>{reply.text}</p></div>)}
         <p className="small">安全なツール状態: {displayState(turn.safeTools.state)} · 呼び出し回数: {turn.safeTools.invocationCount}/8</p>
-        {turn.safeTools.receipts.length ? <ul className="tool-receipts">{turn.safeTools.receipts.map((receipt, receiptIndex) => <li key={`${turn.id}-tool-${receiptIndex}`}>ツール: {entityLabel(receipt.tool)}詳細 <code>get_{receipt.tool}_detail</code> · {displayToolStatus(receipt.status)} · {displaySource(receipt.source)}</li>)}</ul> : <p className="small">安全に表示できるツール記録はありません。</p>}
+        <p className="small">操作指示の記録（キャッシュ結果を含む。業務API GET回数とは別）: LLM {turn.safeTools.receipts.filter((receipt) => receipt.actor === "llm").length}件 / 評価準備（アプリ/MCP）{turn.safeTools.receipts.filter((receipt) => receipt.actor === "host").length}件</p>
+        {turn.safeTools.receipts.length ? <ul className="tool-receipts">{turn.safeTools.receipts.map((receipt, receiptIndex) => <li key={`${turn.id}-tool-${receiptIndex}`}>{receipt.actor === "llm" ? "LLMが選択" : receipt.actor === "host" ? "ホスト（評価準備）" : "オフラインサンプル"} · ツール: {entityLabel(receipt.tool)}詳細 <code>get_{receipt.tool}_detail</code> · {displayToolStatus(receipt.status)} · {displaySource(receipt.source)}</li>)}</ul> : <p className="small">安全に表示できるツール記録はありません。</p>}
         <button type="button" className="secondary" aria-pressed={selectedTurnId === turn.id} onClick={() => setSelectedTurnId(turn.id)}>このターンの証拠を表示</button>
       </li>)}</ol>}
     </section>
 
     {selectedTurn && <>
-      <div className="result-heading"><div><span className="badge">{selectedTurn.mode === "offline" ? "OFFLINE FIXTURE（オフラインサンプル）" : "実接続ターン（未検証）"}</span><h2>{cases.find((item) => item.id === selectedTurn.caseId)?.label}</h2></div><span className="state">状態: {displayState(selectedTurn.safeTools.state)}</span></div>
-      {currentLive && <p className="notice">実接続は未検証です。データソース: {displaySource(currentLive.source)} · 業務API GET回数: {currentLive.liveGetCount} · スナップショット記録数: {currentLive.snapshotRecordCount}</p>}
+      <div className="result-heading"><div><span className="badge">{selectedTurn.mode === "offline" ? "OFFLINE FIXTURE（オフラインサンプル）" : displayLiveMode(currentLive?.mode)}</span><h2>{cases.find((item) => item.id === selectedTurn.caseId)?.label}</h2></div><span className="state">状態: {displayState(selectedTurn.safeTools.state)}</span></div>
+      {currentLive && <p className="notice">{displayLiveMode(currentLive.mode)}。データソース: {displaySource(currentLive.source)} · 業務API GET回数: {currentLive.liveGetCount} · スナップショット記録数: {currentLive.snapshotRecordCount}</p>}
       {currentOffline && <p className="notice">{currentOffline.notice}</p>}
       <div className="grid">
         <section className="panel" aria-labelledby="evidence-user"><div className="step">01 · お問い合わせ</div><h3 id="evidence-user">現在のターンの申告</h3><p>{selectedTurn.inquiry}</p><p className="small">会話文は未検証の申告であり、API事実ではありません。</p></section>

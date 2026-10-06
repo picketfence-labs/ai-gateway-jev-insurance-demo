@@ -9,6 +9,69 @@ candidates only and do not imply that those Konnect routes exist. Copy the
 template only to an ignored local `.env` when an owner supplies real values.
 Do not add certs, keys, provider credentials, or inbound API keys to Git.
 
+## Latest accepted checkpoint: one live S1 insurance turn
+
+On 2026-10-06, one fresh S1 browser submission completed the normal LLM/MCP,
+validated current-turn facts, three-question native Jev, and Japanese supplement
+flow. Bash date observations before submission and after completion were
+**12:23:17 and 12:24:11 JST**; these are checkpoints, not measured latency.
+The actual web image was
+`sha256:6c29a58e6bb23a25545345d70903c1d573fdabb75da208113442ac88098ea5ae`.
+It included auto tool choice, host completion, failed-receipt guard and actor UI.
+The two display-only fixes described below were made after this live run.
+The final source was then built without starting web or making inference calls:
+`sha256:6f0819924e9a6a632ef444081347e9c4887f8260f7ecd7978c8b943c2a0e5fec`.
+This final image is build-verified only, not another live-tested image.
+
+- The LLM selected all four required MCP tools. Receipts show **LLM 4 / host 0**,
+  with four current-turn business GETs: claim, customer, policy and product.
+  Host missing-fact completion was covered by offline S1/S2/S3 mocks, **not
+  exercised live**. S2/S3 live, live comparison and multi-turn live were not run.
+- [Projected facts](evidence/live-s1-a-projected-facts.json) contain the scoped
+  synthetic IDs and allowlisted fields. Customer projection contains only its
+  ID and record-found flag. The immutable [native card](evidence/live-s1-a-native-card.json)
+  records model `jev-1.13.0`, usage 745 input / 160 output tokens, desk
+  `claim_progress` (confidence 1), priority **1.24** (confidence **0**), and
+  next check `claim_progress` (confidence 0.85). Confidence zero is preserved;
+  the separate LLM supplement is an opinion, not a correction to Jev.
+- [Traffic projection](evidence/live-s1-a-checkpoint.json) covers 12:23:17 to
+  12:28:57 JST. DP logs show normal HTTP 200 x5, Jev HTTP 200 x1 and 14 successful
+  unclassified MCP protocol responses. API logs show one GET/200 per required
+  entity. These are observed responses, **not strict host reservations, wire
+  totals or billing counts**; protocol/discovery traffic is separate from the
+  four business GETs. Exact normal host reservation snapshots were not retained.
+  Configured host caps remained normal 7 / Jev 1 / MCP invocations 8.
+- The original live screenshots are [card](evidence/live-s1-a-card.png),
+  [card details](evidence/live-s1-a-card-details.png), and
+  [provenance and supplement](evidence/live-s1-a-provenance.png). Each is a
+  single viewport of the **same one turn**, not stitched tiles or three executions.
+  Raw response bodies, headers, secrets and raw customer records are not saved.
+
+The later display-only changes label live API evidence as a current-turn response
+and translate the known same-key-prefixed priority legend. Unknown legends retain
+raw-value fallback. Native JSON, score, confidence, probabilities and model are
+unchanged. [Saved-response display](evidence/live-s1-a-saved-response-display.png)
+is a **local static replay**, using the current `summarizeDecision` and
+`displaySource` functions with the saved native card. It is not the live Next.js
+page, a new live result, or another inference. Its banner makes that distinction.
+
+The own web service stopped at **12:28:57 JST**. DP and five APIs remain retained;
+tracked live defaults are still off. At the 19:02 restart, retained DP logs since
+that stop contained zero normal/Jev route mentions; this is not a billing or full
+wire guarantee. The temporary replay-only loopback server also stopped after
+verification. No new paid calls followed the S1 run. Actual monetary cost is
+unknown, not zero. Official AI Model to AI Proxy Advanced mapping and actual
+native Jev traffic are confirmed; individual generated plugin association and
+handler execution remain unobserved, as detailed in the earlier smoke section.
+
+Final offline checks: lint, typecheck, **56 unit tests**, secret scan (58 files,
+zero findings after final evidence additions), Next production build and diff
+check passed. Independent review accepted the acquisition contract and final
+mapping delta. Process feedback: the interruption delayed saving this accepted
+result; on resume, runtime observations, original live evidence and offline-only
+display changes were kept separate. No new inference was used for verification.
+Earlier checkpoint sections below are historical, not the current acceptance state.
+
 ## Owner inputs before any runtime attempt
 
 - Konnect AI Gateway control-plane and telemetry host/SNI values, plus the DP
@@ -17,8 +80,9 @@ Do not add certs, keys, provider credentials, or inbound API keys to Git.
 - The static normal-model payload proposes Gemini and GPT/OpenAI targets,
   alias `insurance-normal`, and round-robin. The created model currently uses
   Gemini only; no OpenAI provider/target was configured because an OpenAI key
-  was unavailable. Account/model availability and end-to-end tool calls remain
-  unverified. Inbound app auth uses the fixed `apikey` header described below.
+  was unavailable. Gemini 2.5 Flash and the S1 tool flow were observed in the
+  latest checkpoint below; GPT remains unverified. Inbound app auth uses the
+  fixed `apikey` header described below.
   `AI_GATEWAY_BASE_URL` and `AI_GATEWAY_MODEL` in `.env.example` are matching
   route/alias candidates, not live values.
 - A separate native TypeSafe AI Model for Jev, configured for the `decisions`
@@ -50,6 +114,21 @@ The static scaffold itself does not prove DP registration, Konnect connectivity,
 model readiness, or successful upstream traffic. See the latest authorized
 checkpoint below for resources created outside the scaffold. Kong's `kong health`
 check is process health only and cannot prove those conditions.
+
+## Current acquisition behavior
+
+The normal LLM uses optional MCP tools (`toolChoice: auto`). Only after a
+successful normal-model completion may the host fetch still-missing required
+facts for the selected synthetic case, through the same scoped wrappers,
+projection, turn-local ledger, and existing budgets. It derives IDs only from
+the selected root and relationships in projected facts acquired this turn;
+successful GETs are reused, never repeated. These calls are disclosed before
+submission and shown in Japanese receipts as host/app evaluation preparation,
+not LLM tool calls. A normal LLM transport/SDK failure, scope/reference error,
+or incomplete acquisition stops before Jev; no host REST bypass or prior-turn
+fact is allowed. See [design brief](design-brief.md) and [ADR 0001](decisions/0001-agent-and-host-decision-boundary.md).
+The existing explicit trusted `parent_snapshot` same-facts comparison remains
+separate: zero live GETs and no live fallback, not facts inferred from conversation history.
 
 ## Konnect payloads and approval-gated stages
 
@@ -510,9 +589,11 @@ It was captured once as a full-page browser screenshot after the single final
 S1. Repeated tiles may reflect full-page capture tiling/stitching and are not
 evidence of additional turns.
 
-The app change reviewed by B makes tool choice `required` while any S1-required
-fact kind is missing, then `none` only after the ledger is complete and related;
-inconsistent data fails closed. B reviewed this delta PASS. Offline checks passed:
+Historical pre-change behavior: the app forced tool choice `required` while any
+S1-required fact kind was missing, then `none` only after the ledger was complete
+and related. That behavior is superseded by the current `auto` plus disclosed,
+post-completion host completion flow above. At that checkpoint B reviewed the
+then-current delta PASS. Offline checks passed:
 39 tests, typecheck, lint, diff check, secret scan (53 files, 0 findings), and
 the final Docker image build. The last S1 still failed, so no more attempts are
 authorized by this checkpoint.

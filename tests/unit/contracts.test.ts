@@ -10,12 +10,13 @@ import { isRequestId, LiveRequestRegistry, ProcessUsageBudget, TurnLimits, valid
 import { dispatchLivePayload } from "@/app/api/live/route";
 import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
-import { runLiveTurn, recordGatewayFailure, acquisitionRequirements, acquisitionToolChoice } from "@/lib/gateway-agent";
+import { runLiveTurn, recordGatewayFailure, acquisitionRequirements, acquisitionToolChoice, nextMissingFact } from "@/lib/gateway-agent";
 import { createGatewayApiKeyFetch } from "@/lib/gateway-auth";
 import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
-import { caseLabels, choiceLabel, displayFactValue, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
+import { caseLabels, choiceLabel, displayFactValue, displayLiveMode, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
+import liveS1NativeCard from "../../docs/evidence/live-s1-a-native-card.json";
 
 vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn() }));
 
@@ -29,14 +30,38 @@ it("tells the LLM each case's required fact kinds without supplying undiscovered
   for (const prompt of [s1, s2, s3]) {
     expect(prompt).toContain("現在のターンで取得したツール結果の参照からだけ");
     expect(prompt).toContain("IDや不足事実を推測せず");
-    expect(prompt).toContain("隠れたGETで不足を補うことはありません");
+    expect(prompt).toContain("ホストが未取得の必須事実だけ");
+    expect(prompt).not.toContain("隠れたGET");
     expect(prompt).not.toMatch(/(?:CUS|PRD|POL|CLM|APP)-\d+/);
   }
 });
 
-it("requires tools until the ledger is complete and related, then forbids further acquisition calls", () => {
-  expect(acquisitionToolChoice("S1", new TurnLedger("S1"))).toBe("required");
-  expect(acquisitionToolChoice("S1", completeS1())).toBe("none");
+it("keeps normal tool calling optional and derives missing IDs only from this turn's projected facts", () => {
+  const ledger = new TurnLedger("S1");
+  expect(acquisitionToolChoice()).toBe("auto");
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "claim", id: scenarios.S1.rootId });
+  ledger.record("claim", scenarios.S1.facts.claim!.claim_id, scenarios.S1.facts.claim!);
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "customer", id: scenarios.S1.facts.claim!.customer_id });
+  ledger.record("customer", scenarios.S1.facts.customer!.customer_id, scenarios.S1.facts.customer!);
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "policy", id: scenarios.S1.facts.claim!.policy_id });
+  ledger.record("policy", scenarios.S1.facts.policy!.policy_id, scenarios.S1.facts.policy!);
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "product", id: scenarios.S1.facts.policy!.product_id });
+  expect(acquisitionToolChoice()).toBe("auto");
+});
+
+it("maps live mode labels to response-received, not-evaluated, and error states without insurance-acceptance claims", () => {
+  expect(displayLiveMode("LIVE GATEWAY / MCP / native Jev response received")).toContain("Jev実応答を取得済み");
+  expect(displayLiveMode("LIVE GATEWAY / MCP / native Jev response received")).toContain("保険受入判断ではありません");
+  expect(displayLiveMode("LIVE GATEWAY / MCP / Jev not evaluated")).toContain("Jev未評価");
+  expect(displayLiveMode("LIVE GATEWAY / MCP / Jev result unavailable")).toContain("有効応答なし");
+  expect(displayLiveMode("untrusted arbitrary string")).toBe("実接続結果を確認できません");
+});
+
+it("does not fall back to static expected IDs when a current-turn relationship is missing", () => {
+  const ledger = new TurnLedger("S1");
+  const incompleteClaim = { ...scenarios.S1.facts.claim!, customer_id: null as unknown as string };
+  ledger.record("claim", incompleteClaim.claim_id, incompleteClaim);
+  expect(() => nextMissingFact("S1", ledger)).toThrow(/no unique current-turn reference/);
 });
 
 describe("bounded Gateway failure evidence", () => {
@@ -344,6 +369,25 @@ describe("native Jev contract and one-attempt semantics", () => {
     expect(questions.priority.criteria).toEqual(INTAKE_RUBRIC.priority.criteria);
   });
 
+  it("localizes the saved live S1 native score legend only when the prefix matches its key", () => {
+    const actual = structuredClone(liveS1NativeCard);
+    const originalLegend = structuredClone(actual.answers.priority.legend);
+    const summary = summarizeDecision(actual);
+    expect(summary?.fields[1].legend).toEqual([
+      { key: "0", label: "通常の状況確認・手続きに関する問い合わせ" },
+      { key: "1", label: "追加確認または申告内容との不一致" },
+      { key: "2", label: "早めに担当者と話したいという明示的な希望" },
+    ]);
+    expect(actual.answers.priority.legend).toEqual(originalLegend);
+    expect(summary?.fields[1].value).toBe("1.24 / 2（連続スコア。段階ラベルは付与していません）");
+    expect(displaySource("live_api")).toBe("API応答（現在ターン）");
+
+    const mismatched = structuredClone(actual);
+    mismatched.answers.priority.legend["0"] = "1: ordinary status or procedure inquiry";
+    const mismatchSummary = summarizeDecision(mismatched);
+    expect(mismatchSummary?.fields[1].legend[0].label).toBe("未対応の値（原値: 1: ordinary status or procedure inquiry）");
+  });
+
   it("distinguishes missing, invalid choice, wrong-type, and out-of-range responses", () => {
     expect(() => parseNativeDecision({ model: "x", answers: { desk: {}, priority: {}, next_check: {} } })).toThrow(/Invalid desk/);
     expect(() => parseNativeDecision({ model: "x", answers: { desk: { type: "choice", choice: "write_policy" }, priority: nativeResponse.answers.priority, next_check: nativeResponse.answers.next_check }, usage: { input_tokens: 1, output_tokens: 1 } })).toThrow(/desk choice/);
@@ -629,7 +673,7 @@ describe("bounded chat history and per-turn evidence", () => {
     const turns: ChatTurn<typeof evidenceOne>[] = [
       { id: "live-s1-1", caseId: "S1", mode: "live", inquiry: "S1 first", replies: [{ label: "Normal LLM", text: "one" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceOne },
       { id: "live-s2-1", caseId: "S2", mode: "live", inquiry: "S2", replies: [{ label: "Normal LLM", text: "other case" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceTwo },
-      { id: "offline-s1-1", caseId: "S1", mode: "offline", inquiry: "fixture", replies: [{ label: "OFFLINE FIXTURE / not LLM output", text: "fixture" }], safeTools: projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture" }] }), evidence: evidenceTwo },
+      { id: "offline-s1-1", caseId: "S1", mode: "offline", inquiry: "fixture", replies: [{ label: "OFFLINE FIXTURE / not LLM output", text: "fixture" }], safeTools: projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture", actor: "fixture" }] }), evidence: evidenceTwo },
     ];
     expect(recentConversationHistory(turns, "S1", "live")).toEqual([{ caseId: "S1", mode: "live", userText: "S1 first", assistantText: "Normal LLM: one" }]);
     expect(recentConversationHistory(turns, "S2", "live")).toEqual([{ caseId: "S2", mode: "live", userText: "S2", assistantText: "Normal LLM: other case" }]);
@@ -655,14 +699,16 @@ describe("bounded chat history and per-turn evidence", () => {
 
     const safe = projectSafeToolStatus("completed", {
       invocationCount: 1,
-      receipts: [{ tool: "claim", status: "completed", source: "live_api", rawResult: "CANARY-RAW-RESULT" }],
+      receipts: [{ tool: "claim", status: "completed", source: "live_api", actor: "llm", rawResult: "CANARY-RAW-RESULT" }],
       error: "CANARY-RAW-ERROR",
     });
     expect(safe).toEqual({ state: "completed", invocationCount: 1, receipts: [] });
     expect(JSON.stringify(safe)).not.toMatch(/CANARY|rawResult|error/i);
-    const fixturePlan = projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture" }] });
+    const fixturePlan = projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture", actor: "fixture" }] });
     expect(fixturePlan.invocationCount).toBe(0);
     expect(fixturePlan.receipts[0]).toMatchObject({ status: "fixture_plan_only", source: "offline_fixture" });
+    const host = projectSafeToolStatus("completed", { invocationCount: 1, receipts: [{ tool: "customer", status: "completed", source: "live_api", actor: "host" }] });
+    expect(host.receipts[0]).toMatchObject({ actor: "host", tool: "customer" });
   });
 });
 

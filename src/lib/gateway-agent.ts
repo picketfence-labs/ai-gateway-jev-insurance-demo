@@ -125,13 +125,35 @@ export function classifyHostFailure(error: unknown): Array<{ type: string; categ
 function timeoutSignal(ms: number): AbortSignal { return AbortSignal.timeout(ms); }
 
 export function acquisitionRequirements(caseId: CaseId): string {
-  return `ホストがJev評価を開始するため、今回必要な事実の種類は ${requiredEntities(caseId).join(", ")} です。問い合わせの答えが途中で分かっても、提供された読み取り専用ツールを選択して全種類の事実を取得してください。起点以外のIDは、現在のターンで取得したツール結果の参照からだけ見つけてください。IDや不足事実を推測せず、取得できなければ不足を明示してください。ホストが隠れたGETで不足を補うことはありません。`;
+  return `ホストがJev評価を開始するため、今回必要な事実の種類は ${requiredEntities(caseId).join(", ")} です。問い合わせに関係する事実を取得するため、提供された読み取り専用ツールを必要に応じて選択してください。起点以外のIDは、現在のターンで取得したツール結果の参照からだけ見つけてください。IDや不足事実を推測せず、取得できない場合は明示してください。正常に回答を完了した後、ホストが未取得の必須事実だけを同じ読み取り専用ツール経由で取得する場合があります。`;
 }
 
-export function acquisitionToolChoice(caseId: CaseId, ledger: Pick<TurnLedger, "assertCompleteAndRelated" | "has">): "none" | "required" {
-  if (requiredEntities(caseId).some((entity) => !ledger.has(entity))) return "required";
-  ledger.assertCompleteAndRelated();
-  return "none";
+export function acquisitionToolChoice(): "auto" {
+  return "auto";
+}
+
+export function nextMissingFact(caseId: CaseId, ledger: Pick<TurnLedger, "facts" | "has">): { entity: Entity; id: string } | null {
+  const scenario = scenarios[caseId];
+  const referenceFields: Record<Entity, string[]> = {
+    customer: ["customer_id"], product: ["product_id"], application: ["application_id"],
+    claim: ["claim_id"], policy: ["policy_id", "resulting_policy_id"],
+  };
+  for (const entity of requiredEntities(caseId)) {
+    if (ledger.has(entity)) continue;
+    if (scenario.rootEntity === entity) return { entity, id: scenario.rootId };
+    const ids = new Set<string>();
+    for (const source of requiredEntities(caseId)) {
+      const fact = ledger.facts[source] as unknown as Record<string, unknown> | undefined;
+      if (!fact) continue;
+      for (const field of referenceFields[entity]) {
+        const value = fact[field];
+        if (typeof value === "string") ids.add(value);
+      }
+    }
+    if (ids.size !== 1) throw new ContractError(`Required ${entity} fact has no unique current-turn reference`);
+    return { entity, id: [...ids][0] };
+  }
+  return null;
 }
 
 function extractMcpRecord(result: unknown): unknown {
@@ -210,6 +232,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
   const turnLimits = new TurnLimits();
   const attemptRegistry = new AttemptRegistry();
   const toolReceipts: SafeToolReceipt[] = [];
+  const hostExecutors = new Map<Entity, (id: string) => Promise<unknown>>();
   const runId = options.requestId;
   let stage: FailurePhase = "discovery";
   let reported = 0;
@@ -222,7 +245,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       const evidence = { kind: "live_host_failure", phase, outcome, ...(tool ? { tool } : {}), ...(httpStatus === undefined ? {} : { httpStatus }), causes,
         hostReservations: { gateway: requestCounter.count, ...turnLimits.usage(), jevAttemptReserved: attemptRegistry.has(runId) ? 1 : 0, jevAttemptsProcess: processBudget.usage().jevAttempts },
         reservationScope: "process_and_turn_counters_not_wire_or_billing", acquiredKinds: requiredEntities(options.caseId).filter((entity) => ledger.has(entity)),
-        receipts: toolReceipts.map(({ tool: entity, status }) => ({ tool: entity, status })) };
+        receipts: toolReceipts.map(({ tool: entity, status, actor }) => ({ tool: entity, status, actor })) };
       (options.failureReporter ?? ((value: unknown) => console.error(JSON.stringify(value))))(evidence);
     } catch { /* Diagnostic failure never changes the original result or error. */ }
   };
@@ -236,40 +259,42 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       const allowedName = operationIds[entity];
       const original = available[allowedName] as { execute?: (input: unknown, options?: unknown) => Promise<unknown>; [key: string]: unknown } | undefined;
       if (!original || typeof original.execute !== "function") throw new Error(`Approved detail tool is unavailable: ${key}`);
+      const invoke = async (args: unknown, callOptions: unknown, actor: SafeToolReceipt["actor"]) => {
+        if (!turnLimits.reserveMcpInvocation() || !processBudget.reserveMcpInvocation()) {
+          toolReceipts.push({ tool: entity, status: "rejected", source: "not_sent", actor });
+          throw new Error("MCP tool invocation budget exhausted");
+        }
+        try {
+          const result = await executeScopedMcpCall(
+            ledger,
+            allowedName,
+            args,
+            async () => {
+              const call = original.execute!(args, callOptions).then(extractMcpRecord);
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                return await Promise.race([
+                  call,
+                  new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("MCP request timed out")), config.mcpTimeoutMs); }),
+                ]);
+              } catch (error) { recordFailure("mcp_transport", error, entity); throw error; }
+              finally { if (timer) clearTimeout(timer); }
+            },
+          );
+          toolReceipts.push({ tool: entity, status: "completed", source: result.source === "parent_snapshot" ? "parent_snapshot" : "live_api", actor });
+          return result;
+        } catch (error) {
+          toolReceipts.push({ tool: entity, status: "failed", source: "unavailable", actor });
+          recordFailure("mcp", error, entity);
+          throw new Error("Approved MCP tool failed safely");
+        }
+      };
       const wrapped = {
         ...original,
         description: `Read one ${entity} detail for the selected synthetic case; scope is enforced before the business request.`,
-        execute: async (args: unknown, callOptions: unknown) => {
-          if (!turnLimits.reserveMcpInvocation() || !processBudget.reserveMcpInvocation()) {
-            toolReceipts.push({ tool: entity, status: "rejected", source: "not_sent" });
-            throw new Error("MCP tool invocation budget exhausted");
-          }
-          try {
-            const result = await executeScopedMcpCall(
-              ledger,
-              allowedName,
-              args,
-              async () => {
-                const call = original.execute!(args, callOptions).then(extractMcpRecord);
-                let timer: ReturnType<typeof setTimeout> | undefined;
-                try {
-                  return await Promise.race([
-                    call,
-                    new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("MCP request timed out")), config.mcpTimeoutMs); }),
-                  ]);
-                } catch (error) { recordFailure("mcp_transport", error, entity); throw error; }
-                finally { if (timer) clearTimeout(timer); }
-              },
-            );
-            toolReceipts.push({ tool: entity, status: "completed", source: result.source === "parent_snapshot" ? "parent_snapshot" : "live_api" });
-            return result;
-          } catch (error) {
-            toolReceipts.push({ tool: entity, status: "failed", source: "unavailable" });
-            recordFailure("mcp", error, entity);
-            throw new Error("Approved MCP tool failed safely");
-          }
-        },
+        execute: async (args: unknown, callOptions: unknown) => invoke(args, callOptions, "llm"),
       };
+      hostExecutors.set(entity, (id) => invoke({ [`path_${entity}_id`]: id }, undefined, "host"));
       tools[allowedName] = wrapped;
     }
 
@@ -284,7 +309,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       stopWhen: stepCountIs(6),
       maxRetries: 0,
       prepareStep: async () => {
-        try { return { toolChoice: acquisitionToolChoice(options.caseId, ledger) }; }
+        try { return { toolChoice: acquisitionToolChoice() }; }
         catch (error) { recordFailure("validation", error); throw error; }
       },
     }); } catch (error) { recordFailure("normal_sdk", error); throw error; }
@@ -292,6 +317,19 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
     stage = "validation";
     let result: Awaited<ReturnType<typeof runDecisionPhases>>;
     try {
+      stage = "acquisition";
+      if (toolReceipts.some(({ status }) => status === "failed" || status === "rejected")) {
+        throw new ContractError("An LLM-selected MCP tool did not complete; host completion stopped");
+      }
+      while (requiredEntities(options.caseId).some((entity) => !ledger.has(entity))) {
+        const next = nextMissingFact(options.caseId, ledger);
+        if (!next) throw new ContractError("Required facts remain after acquisition");
+        const executeHost = hostExecutors.get(next.entity);
+        if (!executeHost) throw new ContractError("Required host tool is unavailable");
+        try { await executeHost(next.id); }
+        catch { throw new ContractError("Host evaluation-preparation acquisition failed safely"); }
+      }
+      stage = "validation";
       ledger.assertCompleteAndRelated();
       result = await runDecisionPhases({
         ledger,
@@ -329,7 +367,11 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
     }
     return {
       runId,
-      mode: "LIVE GATEWAY / MCP / native Jev (unverified)",
+      mode: result.status === "completed"
+        ? "LIVE GATEWAY / MCP / native Jev response received"
+        : result.status === "ineligible"
+          ? "LIVE GATEWAY / MCP / Jev not evaluated"
+          : "LIVE GATEWAY / MCP / Jev result unavailable",
       source: ledger.sourceLabel,
       llmText: acquisition.text,
       facts: ledger.facts,

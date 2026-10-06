@@ -52,7 +52,7 @@ const statusLabels: Record<string, string> = {
 };
 
 const sourceLabels: Record<string, string> = {
-  live_api: "API応答（実接続は未検証）",
+  live_api: "API応答（現在ターン）",
   parent_snapshot: "親スナップショット",
   not_sent: "未送信",
   unavailable: "利用不可",
@@ -126,6 +126,13 @@ export function choiceLabel(kind: "desk" | "next_check", value: unknown): string
 export function displayState(value: unknown): string {
   if (typeof value !== "string") return unknownValue(value);
   return statusLabels[value] ?? unknownValue(value);
+}
+
+export function displayLiveMode(value: unknown): string {
+  if (value === "LIVE GATEWAY / MCP / native Jev response received") return "Jev実応答を取得済み（デモ用。保険受入判断ではありません）";
+  if (value === "LIVE GATEWAY / MCP / Jev not evaluated") return "Jev未評価（必須事実・範囲などを満たしていません）";
+  if (value === "LIVE GATEWAY / MCP / Jev result unavailable") return "Jev有効応答なし（判断エラー）";
+  return "実接続結果を確認できません";
 }
 
 export function displaySource(value: unknown): string {
@@ -229,7 +236,12 @@ function displayAnswer(key: "desk" | "priority" | "next_check", answer: unknown,
   const rawLegend = isRecord(record.legend) ? record.legend : null;
   const legend = key === "priority"
     ? rawLegend
-      ? Object.entries(rawLegend).map(([score, text]) => ({ key: score, label: typeof text === "string" ? knownLegendValues[text] ?? unknownValue(text) : unknownValue(text) }))
+      ? Object.entries(rawLegend).map(([score, text]) => {
+        if (typeof text !== "string") return { key: score, label: unknownValue(text) };
+        const prefix = `${score}: `;
+        const value = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+        return { key: score, label: knownLegendValues[value] ?? unknownValue(text) };
+      })
       : fixture ? localizedRubric.priorityCriteria.map(([score, text]) => ({ key: score, label: text })) : []
     : [];
   let value: string;

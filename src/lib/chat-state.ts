@@ -6,8 +6,9 @@ const safeTools = new Set<Entity>(["customer", "product", "application", "claim"
 const safeStates = new Set(["completed", "decision_error", "ineligible", "unassessed", "completed_fixture"]);
 const safeReceiptStates = new Set(["completed", "failed", "rejected", "fixture_plan_only"]);
 const safeSources = new Set(["live_api", "parent_snapshot", "not_sent", "unavailable", "offline_fixture"]);
+const safeActors = new Set(["llm", "host", "fixture"]);
 
-export type SafeToolReceipt = { tool: Entity; status: "completed" | "failed" | "rejected" | "fixture_plan_only"; source: "live_api" | "parent_snapshot" | "not_sent" | "unavailable" | "offline_fixture" };
+export type SafeToolReceipt = { tool: Entity; status: "completed" | "failed" | "rejected" | "fixture_plan_only"; source: "live_api" | "parent_snapshot" | "not_sent" | "unavailable" | "offline_fixture"; actor: "llm" | "host" | "fixture" };
 export type SafeToolStatus = { state: string; invocationCount: number; receipts: SafeToolReceipt[] };
 export type ChatReply = { label: string; text: string };
 export type ChatTurn<Evidence = unknown> = {
@@ -29,8 +30,8 @@ export function projectSafeToolStatus(state: unknown, candidate: unknown): SafeT
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
     const receipt = raw as Record<string, unknown>;
     const keys = Object.keys(receipt).sort();
-    if (keys.join(",") !== "source,status,tool" || !safeTools.has(receipt.tool as Entity) || !safeReceiptStates.has(String(receipt.status)) || !safeSources.has(String(receipt.source))) return [];
-    return [{ tool: receipt.tool as Entity, status: receipt.status as SafeToolReceipt["status"], source: receipt.source as SafeToolReceipt["source"] }];
+    if (keys.join(",") !== "actor,source,status,tool" || !safeTools.has(receipt.tool as Entity) || !safeReceiptStates.has(String(receipt.status)) || !safeSources.has(String(receipt.source)) || !safeActors.has(String(receipt.actor))) return [];
+    return [{ tool: receipt.tool as Entity, status: receipt.status as SafeToolReceipt["status"], source: receipt.source as SafeToolReceipt["source"], actor: receipt.actor as SafeToolReceipt["actor"] }];
   }) : [];
   return { state: safeState, invocationCount: count, receipts };
 }

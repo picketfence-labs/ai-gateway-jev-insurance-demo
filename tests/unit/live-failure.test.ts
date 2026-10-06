@@ -12,7 +12,7 @@ vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: createMCPClientMock }));
 
 import { runLiveTurn } from "@/lib/gateway-agent";
 import { operationIds, TurnLedger } from "@/lib/ledger";
-import { scenarios, type Entity } from "@/lib/scenarios";
+import { scenarios, requiredEntities, type CaseId, type Entity } from "@/lib/scenarios";
 import { ContractError } from "@/lib/projection";
 
 const liveEnv: Record<string, string> = {
@@ -51,15 +51,18 @@ afterEach(() => {
 
 function setupClients(execute: (entity: Entity, args: unknown) => Promise<unknown> = async (entity) => scenarios.S1.facts[entity] as unknown) {
   createMCPClientMock.mockImplementation(async () => ({
-    tools: async () => Object.fromEntries((Object.keys(operationIds) as Entity[]).map((entity) => [operationIds[entity], { execute: (args: unknown) => execute(entity, args) }])),
+    tools: async () => Object.fromEntries((Object.keys(operationIds) as Entity[]).map((entity) => {
+      const arg = "path_" + entity + "_id";
+      return [operationIds[entity], { inputSchema: { type: "object", properties: { [arg]: { type: "string" } }, required: [arg], additionalProperties: false }, execute: (args: unknown) => execute(entity, args) }];
+    })),
     close: vi.fn(),
   }));
 }
 
 function nextId() { sequence += 1; return `00000000-0000-4000-8000-${sequence.toString(16).padStart(12, "0")}`; }
 function safeEvents(events: unknown[]) { return JSON.stringify(events); }
-function run(events: unknown[], failureReporter?: (value: unknown) => void) {
-  return runLiveTurn({ caseId: "S1", inquiry: "synthetic fixture", requestId: nextId(), failureReporter: failureReporter ?? ((value) => events.push(value)) });
+function run(events: unknown[], failureReporter?: (value: unknown) => void, caseId: CaseId = "S1") {
+  return runLiveTurn({ caseId, inquiry: "synthetic fixture", requestId: nextId(), failureReporter: failureReporter ?? ((value) => events.push(value)) });
 }
 
 describe("live turn failure evidence", () => {
@@ -97,6 +100,83 @@ describe("live turn failure evidence", () => {
     expect(serialized).not.toContain("CANARY");
   });
 
+  it.each(["S1", "S2", "S3"] as const)("fills only missing %s facts after a successful zero-tool LLM completion", async (caseId) => {
+    const events: unknown[] = [];
+    const calls: Array<{ entity: Entity; args: unknown }> = [];
+    setupClients(async (entity, args) => {
+      calls.push({ entity, args });
+      return scenarios[caseId].facts[entity] as unknown;
+    });
+    const prepareStepValues: unknown[] = [];
+    generateTextMock.mockImplementation(async (options: { prepareStep?: () => Promise<unknown> }) => {
+      if (options.prepareStep) prepareStepValues.push(await options.prepareStep());
+      return { text: "synthetic completion" };
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":"synthetic Jev stop"}', { status: 500 })));
+    try {
+      const result = await run(events, undefined, caseId);
+      expect(prepareStepValues).toEqual([{ toolChoice: "auto" }]);
+      expect(result.status).toBe("decision_error");
+      expect(calls.map(({ entity }) => entity)).toEqual(requiredEntities(caseId));
+      expect(calls).toHaveLength(requiredEntities(caseId).length);
+      for (const { entity, args } of calls) {
+        const fact = scenarios[caseId].facts[entity] as unknown as Record<string, unknown>;
+        expect(args).toEqual({ ["path_" + entity + "_id"]: fact[entity + "_id"] });
+      }
+      expect(result.toolStatus.receipts.map(({ actor }) => actor)).toEqual(requiredEntities(caseId).map(() => "host"));
+      expect(result.turnUsage.mcpInvocations).toBe(requiredEntities(caseId).length);
+      expect(result.jevAttemptReserved).toBe(1);
+    } finally { consoleError.mockRestore(); }
+  });
+
+  it("reuses an LLM-fetched root and host-fetches only the remaining current-reference chain", async () => {
+    const events: unknown[] = [];
+    const calls: Array<{ entity: Entity; args: unknown }> = [];
+    setupClients(async (entity, args) => {
+      calls.push({ entity, args });
+      return scenarios.S1.facts[entity] as unknown;
+    });
+    generateTextMock.mockImplementation(async ({ tools }: { tools: Record<string, { execute: (args: unknown, options?: unknown) => Promise<unknown>; inputSchema: unknown }> }) => {
+      expect(tools[operationIds.claim]!.inputSchema).toEqual({ type: "object", properties: { path_claim_id: { type: "string" } }, required: ["path_claim_id"], additionalProperties: false });
+      await tools[operationIds.claim]!.execute({ path_claim_id: scenarios.S1.rootId }, {});
+      return { text: "synthetic completion" };
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":"synthetic Jev stop"}', { status: 500 })));
+    try {
+      const result = await run(events);
+      expect(result.status).toBe("decision_error");
+      expect(calls.map(({ entity }) => entity)).toEqual(["claim", "customer", "policy", "product"]);
+      expect(result.toolStatus.receipts.map(({ actor }) => actor)).toEqual(["llm", "host", "host", "host"]);
+      expect(result.toolStatus.invocationCount).toBe(4);
+    } finally { consoleError.mockRestore(); }
+  });
+
+  it("does not host-retry an LLM-selected MCP tool failure even if the SDK returns a normal completion", async () => {
+    const events: unknown[] = [];
+    const calls: Entity[] = [];
+    setupClients(async (entity) => {
+      calls.push(entity);
+      if (entity === "claim") throw new Error("CANARY failed MCP result");
+      return scenarios.S1.facts[entity] as unknown;
+    });
+    generateTextMock.mockImplementation(async ({ tools }: { tools: Record<string, { execute: (args: unknown, options?: unknown) => Promise<unknown> }> }) => {
+      try { await tools[operationIds.claim]!.execute({ path_claim_id: scenarios.S1.rootId }, {}); }
+      catch { /* SDK may convert execute failures into a tool-error and still return text. */ }
+      return { text: "normal SDK completion with failed tool" };
+    });
+    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    const result = await run(events);
+    expect(result.status).toBe("ineligible");
+    expect(calls).toEqual(["claim"]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.toolStatus.receipts).toEqual([{ tool: "claim", status: "failed", source: "unavailable", actor: "llm" }]);
+    expect(result.jevAttemptReserved).toBe(0);
+    expect(safeEvents(events)).not.toMatch(/CANARY|CLM-|CUS-|policy_id/);
+  });
+
   it("reports MCP scope, projection and timeout faults from the wrapped execute catch", async () => {
     for (const mode of ["scope", "projection", "timeout"] as const) {
       const events: unknown[] = [];
@@ -125,16 +205,22 @@ describe("live turn failure evidence", () => {
     }
   });
 
-  it("keeps missing facts as a normal ineligible result and marks the missing-fact category", async () => {
+  it("does not guess a missing ID when the current-turn reference chain is incomplete", async () => {
     const events: unknown[] = [];
+    setupClients(async (entity) => entity === "claim"
+      ? { ...(scenarios.S1.facts.claim as object), customer_id: null, policy_id: null }
+      : scenarios.S1.facts[entity] as unknown);
     generateTextMock.mockResolvedValue({ text: "partial answer" });
     const result = await run(events);
     expect(result.status).toBe("ineligible");
     const serialized = safeEvents(events);
     expect(serialized).toContain('"outcome":"ineligible"');
-    expect(serialized).toContain("missing_required_fact");
+    expect(serialized).toContain("contract_rejected");
     expect(serialized).not.toContain("CLM-");
     expect(serialized).not.toContain("CUS-");
+    expect(result.toolStatus.invocationCount).toBe(1);
+    expect(result.toolStatus.receipts).toEqual([{ tool: "claim", status: "failed", source: "unavailable", actor: "host" }]);
+    expect(result.jevAttemptReserved).toBe(0);
   });
 
   it("records related-fact validation through the real runLiveTurn validation path", async () => {

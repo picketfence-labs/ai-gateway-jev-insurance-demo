@@ -16,9 +16,9 @@ The demo must retain conversational LLM behavior and visible MCP tool calls whil
 
 ## Decision and reasons
 
-Use the third option. The LLM actually selects permitted MCP tools. Server wrappers validate and project before SDK-visible return. The host validates the complete ledger and calls Jev once for an eligible turn. A separate tool-free generation explains the result as an LLM supplement.
+Use the third option. The LLM may select permitted MCP tools (`toolChoice: auto`); server wrappers validate and project before SDK-visible return. After successful normal-model completion, the host may use the same scoped MCP wrappers to acquire only missing required facts for the selected synthetic case. The host validates the complete ledger and calls Jev once for an eligible turn. A separate tool-free generation explains the result as an LLM supplement.
 
-Do not silently complete missing tool calls for the agent. Do not treat Jev as authorization. Keep same-facts comparisons in snapshot wrappers with a visible source label.
+This bounded host completion is explicitly disclosed and its MCP receipts are labeled as host/app evaluation preparation rather than LLM-selected calls. It may derive IDs only from the selected root and projected references acquired in the current turn; static expected IDs are scope checks, not fetch inputs. It does not use prior-turn facts, arbitrary user IDs, hidden REST calls, or duplicate successful GETs. A normal LLM transport/SDK failure stops without host completion. Do not treat Jev as authorization. Keep same-facts comparisons in snapshot wrappers with a visible source label.
 
 ## Consequences
 
