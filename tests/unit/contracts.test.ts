@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createMCPClient } from "@ai-sdk/mcp";
 import { TurnLedger, createComparisonLedger, executeScopedMcpCall, operationIds, readSnapshotOnly } from "@/lib/ledger";
 import { projectApiRecord } from "@/lib/projection";
 import { buildNativeRequest, AttemptRegistry, executeAtMostOnce, parseNativeDecision, questions } from "@/lib/jev";
@@ -9,11 +10,164 @@ import { isRequestId, LiveRequestRegistry, ProcessUsageBudget, TurnLimits, valid
 import { dispatchLivePayload } from "@/app/api/live/route";
 import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
-import { runLiveTurn } from "@/lib/gateway-agent";
+import { runLiveTurn, recordGatewayFailure, acquisitionRequirements, acquisitionToolChoice, nextMissingFact } from "@/lib/gateway-agent";
+import { createGatewayApiKeyFetch } from "@/lib/gateway-auth";
 import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
-import { caseLabels, choiceLabel, displayFactValue, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
+import { caseLabels, choiceLabel, displayFactValue, displayLiveMode, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
+import liveS1NativeCard from "../../docs/evidence/live-s1-a-native-card.json";
+
+vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn() }));
+
+it("tells the LLM each case's required fact kinds without supplying undiscovered IDs or executing hidden GETs", () => {
+  const s1 = acquisitionRequirements("S1");
+  const s2 = acquisitionRequirements("S2");
+  const s3 = acquisitionRequirements("S3");
+  for (const prompt of [s1, s3]) for (const kind of ["customer", "product", "claim", "policy"]) expect(prompt).toContain(kind);
+  for (const kind of ["customer", "product", "application"]) expect(s2).toContain(kind);
+  expect(s2).not.toContain("claim");
+  for (const prompt of [s1, s2, s3]) {
+    expect(prompt).toContain("現在のターンで取得したツール結果の参照からだけ");
+    expect(prompt).toContain("IDや不足事実を推測せず");
+    expect(prompt).toContain("ホストが未取得の必須事実だけ");
+    expect(prompt).not.toContain("隠れたGET");
+    expect(prompt).not.toMatch(/(?:CUS|PRD|POL|CLM|APP)-\d+/);
+  }
+});
+
+it("keeps normal tool calling optional and derives missing IDs only from this turn's projected facts", () => {
+  const ledger = new TurnLedger("S1");
+  expect(acquisitionToolChoice()).toBe("auto");
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "claim", id: scenarios.S1.rootId });
+  ledger.record("claim", scenarios.S1.facts.claim!.claim_id, scenarios.S1.facts.claim!);
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "customer", id: scenarios.S1.facts.claim!.customer_id });
+  ledger.record("customer", scenarios.S1.facts.customer!.customer_id, scenarios.S1.facts.customer!);
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "policy", id: scenarios.S1.facts.claim!.policy_id });
+  ledger.record("policy", scenarios.S1.facts.policy!.policy_id, scenarios.S1.facts.policy!);
+  expect(nextMissingFact("S1", ledger)).toEqual({ entity: "product", id: scenarios.S1.facts.policy!.product_id });
+  expect(acquisitionToolChoice()).toBe("auto");
+});
+
+it("maps live mode labels to response-received, not-evaluated, and error states without insurance-acceptance claims", () => {
+  expect(displayLiveMode("LIVE GATEWAY / MCP / native Jev response received")).toContain("Jev実応答を取得済み");
+  expect(displayLiveMode("LIVE GATEWAY / MCP / native Jev response received")).toContain("保険受入判断ではありません");
+  expect(displayLiveMode("LIVE GATEWAY / MCP / Jev not evaluated")).toContain("Jev未評価");
+  expect(displayLiveMode("LIVE GATEWAY / MCP / Jev result unavailable")).toContain("有効応答なし");
+  expect(displayLiveMode("untrusted arbitrary string")).toBe("実接続結果を確認できません");
+});
+
+it("does not fall back to static expected IDs when a current-turn relationship is missing", () => {
+  const ledger = new TurnLedger("S1");
+  const incompleteClaim = { ...scenarios.S1.facts.claim!, customer_id: null as unknown as string };
+  ledger.record("claim", incompleteClaim.claim_id, incompleteClaim);
+  expect(() => nextMissingFact("S1", ledger)).toThrow(/no unique current-turn reference/);
+});
+
+describe("bounded Gateway failure evidence", () => {
+  it("labels a native Jev failure without changing its response or synthesizing a decision", async () => {
+    const response = new Response('{"error":"Native question format invalid"}', { status: 400 });
+    const evidence: unknown[] = [];
+    await recordGatewayFailure(response, "jev", {}, (value) => evidence.push(value));
+    expect(evidence).toEqual([{ phase: "jev", httpStatus: 400, explanations: ["Native question format invalid"] }]);
+    expect(response.bodyUsed).toBe(false);
+    expect(response.ok).toBe(false);
+  });
+  it("retains a useful nested explanation while masking known and labelled credentials", async () => {
+    const canary = "gateway-canary/+secret";
+    const body = JSON.stringify({ error: { api_key: canary, details: [{ message: `Missing thought_signature. ${canary} ${encodeURIComponent(canary)} ${Buffer.from(canary).toString("base64")} Bearer hidden-token token=unknown-canary {"api_key":"unknown-json-canary"}` }] } });
+    const response = new Response(body, { status: 400 });
+    const evidence: unknown[] = [];
+    await recordGatewayFailure(response, "agent", { MCP_API_KEY: canary }, (value) => evidence.push(value));
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).toContain("Missing thought_signature");
+    for (const value of [canary, encodeURIComponent(canary), Buffer.from(canary).toString("base64"), "hidden-token", "unknown-canary", "unknown-json-canary"]) expect(serialized).not.toContain(value);
+    expect(serialized).not.toContain("api_key");
+    expect(response.bodyUsed).toBe(false);
+    expect(await response.text()).toBe(body);
+  });
+  it("handles string error, unknown shape and malformed JSON without printing raw payload", async () => {
+    const evidence: unknown[] = [];
+    await recordGatewayFailure(new Response(JSON.stringify({ error: "Unsupported format" }), { status: 400 }), "supplement", {}, (value) => evidence.push(value));
+    await recordGatewayFailure(new Response(JSON.stringify({ unrecognized: "hidden-value" }), { status: 400 }), "agent", {}, (value) => evidence.push(value));
+    await recordGatewayFailure(new Response("raw-non-json-hidden"), "agent", {}, (value) => evidence.push(value));
+    // Only non-2xx responses are observed.
+    expect(evidence).toHaveLength(2);
+    expect(JSON.stringify(evidence)).toContain("Unsupported format");
+    expect(JSON.stringify(evidence)).toContain("unrecognized_error_shape");
+    expect(JSON.stringify(evidence)).not.toContain("hidden-value");
+    const malformed: unknown[] = [];
+    await recordGatewayFailure(new Response("raw-non-json-hidden", { status: 500 }), "agent", {}, (value) => malformed.push(value));
+    expect(JSON.stringify(malformed)).toContain("safe_error_diagnostic_unavailable");
+    expect(JSON.stringify(malformed)).not.toContain("raw-non-json-hidden");
+  });
+  it("caps bytes, explanations and report failures without consuming original responses", async () => {
+    const evidence: unknown[] = [];
+    const large = new Response("x".repeat(4097), { status: 400 });
+    await recordGatewayFailure(large, "agent", {}, (value) => evidence.push(value));
+    expect(JSON.stringify(evidence)).toContain("error_body_size_limit");
+    const bounded = new Response(JSON.stringify({ errors: Array.from({ length: 5 }, () => ({ message: "x".repeat(700) })) }), { status: 400 });
+    await recordGatewayFailure(bounded, "agent", {}, (value) => evidence.push(value));
+    const row = evidence[1] as { explanations: string[] };
+    expect(row.explanations).toHaveLength(2);
+    expect(row.explanations.every((text) => text.length <= 512)).toBe(true);
+    const preserved = new Response('{"message":"Invalid request"}', { status: 400 });
+    await recordGatewayFailure(preserved, "agent", {}, () => { throw new Error("reporter failure"); });
+    expect(preserved.bodyUsed).toBe(false);
+  });
+});
+
+describe("inbound AI Gateway API-key transport", () => {
+  it("replaces Authorization with the fixed apikey header for string, URL, and Request inputs", async () => {
+    const route = "https://gateway.example.test/v1/insurance-normal/chat/completions";
+    const seen: Request[] = [];
+    const transport = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Request(input, init));
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    const guarded = createGatewayApiKeyFetch(route, "inbound-canary", transport);
+    const inputs: Array<[RequestInfo | URL, RequestInit?]> = [
+      [route, { method: "POST", headers: { authorization: "Bearer sdk-generated", apikey: "caller-override" } }],
+      [new URL(route), { method: "POST", headers: { authorization: "Bearer url-input" } }],
+      [new Request(route, { method: "POST", headers: { authorization: "Bearer request-input" } })],
+    ];
+
+    for (const [input, init] of inputs) await guarded(input, init);
+
+    expect(seen).toHaveLength(3);
+    for (const request of seen) {
+      expect(request.headers.get("authorization")).toBeNull();
+      expect(request.headers.get("apikey")).toBe("inbound-canary");
+      expect(request.redirect).toBe("error");
+      expect(request.method).toBe("POST");
+    }
+  });
+
+  it("rejects another origin, another path, and non-POST calls before sending the key", async () => {
+    const transport = vi.fn(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
+    const guarded = createGatewayApiKeyFetch("https://gateway.example.test/jev/v1/systemone", "inbound-canary", transport);
+
+    await expect(guarded("https://elsewhere.example.test/jev/v1/systemone", { method: "POST" })).rejects.toThrow("Gateway request target is not allowed");
+    await expect(guarded("https://gateway.example.test/jev/v1/other", { method: "POST" })).rejects.toThrow("Gateway request target is not allowed");
+    await expect(guarded("https://gateway.example.test/jev/v1/systemone", { method: "GET" })).rejects.toThrow("Gateway request target is not allowed");
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("refuses redirects rather than following a Location with the key", async () => {
+    let sent: Request | undefined;
+    const transport = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent = new Request(input, init);
+      return new Response(null, { status: 302, headers: { location: "https://elsewhere.example.test/collect" } });
+    }) as unknown as typeof fetch;
+    const guarded = createGatewayApiKeyFetch("https://gateway.example.test/jev/v1/systemone", "inbound-canary", transport);
+
+    await expect(guarded("https://gateway.example.test/jev/v1/systemone", { method: "POST" })).rejects.toThrow("Gateway redirect refused");
+    expect(sent?.redirect).toBe("error");
+    expect(sent?.headers.get("apikey")).toBe("inbound-canary");
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+});
+
 
 function completeS1() {
   const ledger = new TurnLedger("S1");
@@ -64,6 +218,29 @@ describe("scope and host ledger", () => {
     await expect(executeScopedMcpCall(ledger, operationIds.claim, { claim_id: "CLM-999999" }, send)).rejects.toThrow(/not discovered/);
     expect(send).not.toHaveBeenCalled();
     expect(ledger.uniqueSuccessfulGetCount).toBe(0);
+  });
+
+  it("authorizes Kong path-prefixed MCP IDs while preserving the original tool arguments", async () => {
+    const ledger = new TurnLedger("S1");
+    const args = { path_claim_id: "CLM-000015" };
+    const send = vi.fn(async () => scenarios.S1.facts.claim);
+    const result = await executeScopedMcpCall(ledger, operationIds.claim, args, send);
+    expect(send).toHaveBeenCalledOnce();
+    expect(args).toEqual({ path_claim_id: "CLM-000015" });
+    expect(result).toMatchObject({ data: { claim_id: "CLM-000015" } });
+    for (const invalid of [
+      { path_claim_id: "CLM-000015", claim_id: "CLM-000015" },
+      { path_claim_id: "CLM-000015", extra: "x" },
+      { path_claim_id: "CLM-999999" },
+      { path_claim_id: "" },
+      { path_claim_id: 15 },
+      { path_customer_id: "CUS-000011" },
+      { PATH_claim_id: "CLM-000015" },
+    ]) {
+      const rejected = vi.fn(async () => scenarios.S1.facts.claim);
+      await expect(executeScopedMcpCall(ledger, operationIds.claim, invalid, rejected)).rejects.toThrow();
+      expect(rejected).not.toHaveBeenCalled();
+    }
   });
 
   it("redacts raw MCP exceptions so canaries cannot reach SDK tool errors or Jev", async () => {
@@ -192,6 +369,25 @@ describe("native Jev contract and one-attempt semantics", () => {
     expect(questions.priority.criteria).toEqual(INTAKE_RUBRIC.priority.criteria);
   });
 
+  it("localizes the saved live S1 native score legend only when the prefix matches its key", () => {
+    const actual = structuredClone(liveS1NativeCard);
+    const originalLegend = structuredClone(actual.answers.priority.legend);
+    const summary = summarizeDecision(actual);
+    expect(summary?.fields[1].legend).toEqual([
+      { key: "0", label: "通常の状況確認・手続きに関する問い合わせ" },
+      { key: "1", label: "追加確認または申告内容との不一致" },
+      { key: "2", label: "早めに担当者と話したいという明示的な希望" },
+    ]);
+    expect(actual.answers.priority.legend).toEqual(originalLegend);
+    expect(summary?.fields[1].value).toBe("1.24 / 2（連続スコア。段階ラベルは付与していません）");
+    expect(displaySource("live_api")).toBe("API応答（現在ターン）");
+
+    const mismatched = structuredClone(actual);
+    mismatched.answers.priority.legend["0"] = "1: ordinary status or procedure inquiry";
+    const mismatchSummary = summarizeDecision(mismatched);
+    expect(mismatchSummary?.fields[1].legend[0].label).toBe("未対応の値（原値: 1: ordinary status or procedure inquiry）");
+  });
+
   it("distinguishes missing, invalid choice, wrong-type, and out-of-range responses", () => {
     expect(() => parseNativeDecision({ model: "x", answers: { desk: {}, priority: {}, next_check: {} } })).toThrow(/Invalid desk/);
     expect(() => parseNativeDecision({ model: "x", answers: { desk: { type: "choice", choice: "write_policy" }, priority: nativeResponse.answers.priority, next_check: nativeResponse.answers.next_check }, usage: { input_tokens: 1, output_tokens: 1 } })).toThrow(/desk choice/);
@@ -260,7 +456,7 @@ describe("offline and live gates", () => {
     const env = {
       LIVE_ACCESS_APPROVED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
       AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "1",
-      MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       AI_GATEWAY_JEV_API_KEY: "present",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
@@ -272,11 +468,13 @@ describe("offline and live gates", () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
       AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2",
-      MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
 } as unknown as NodeJS.ProcessEnv;
     const agent = vi.fn(async () => ({ status: "mocked" }));
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(30) }, { ...env, MCP_API_KEY: undefined }, agent)).toMatchObject({ status: 503 });
+    expect(agent).not.toHaveBeenCalled();
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(1) }, { ...env, LIVE_ACCESS_APPROVED: "false" }, agent)).toMatchObject({ status: 503 });
     expect(agent).not.toHaveBeenCalled();
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(2) }, env, agent)).toEqual({ status: 200, payload: { status: "mocked" } });
@@ -313,7 +511,7 @@ describe("offline and live gates", () => {
   it("validates and forwards only bounded text history to the live agent", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
     } as unknown as NodeJS.ProcessEnv;
@@ -326,10 +524,57 @@ describe("offline and live gates", () => {
     expect(agent).toHaveBeenCalledTimes(1);
   });
 
+  it("sends the separate fixed apikey header to all five MCP endpoints without surfacing it", async () => {
+    const env: Record<string, string> = {
+      DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true",
+      AI_GATEWAY_BASE_URL: "https://example.invalid/v1/insurance-normal", AI_GATEWAY_API_KEY: "normal-dummy",
+      AI_GATEWAY_MODEL: "insurance-normal", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "7",
+      AI_GATEWAY_JEV_URL: "https://example.invalid/jev/v1/systemone", AI_GATEWAY_JEV_API_KEY: "jev-dummy",
+      AI_GATEWAY_JEV_MODEL: "insurance-jev-decisions", AI_GATEWAY_JEV_TIMEOUT_MS: "10000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
+      MCP_API_KEY: "synthetic-mcp-key-not-credential", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      MCP_CUSTOMER_URL: "https://example.invalid/mcp/customer", MCP_PRODUCT_URL: "https://example.invalid/mcp/product",
+      MCP_APPLICATION_URL: "https://example.invalid/mcp/application", MCP_CLAIM_URL: "https://example.invalid/mcp/claim",
+      MCP_POLICY_URL: "https://example.invalid/mcp/policy",
+    };
+    const previous = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, env);
+    let discoveryCount = 0;
+    const clientFactory = vi.mocked(createMCPClient);
+    clientFactory.mockImplementation(async () => ({
+      tools: async () => {
+        discoveryCount += 1;
+        if (discoveryCount === 5) throw new Error(`mock discovery stop ${process.env.MCP_API_KEY}`);
+        return Object.fromEntries(Object.values(operationIds).map((id) => [id, { execute: vi.fn() }]));
+      },
+      close: vi.fn(),
+    }) as never);
+    const consoleError = vi.spyOn(console, "error");
+    try {
+      const response = await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic only", requestId: requestId(31) }, process.env);
+      expect(response).toMatchObject({ status: 502, payload: { error: "The live agent failed safely. No transport details were returned." } });
+      expect(JSON.stringify(response)).not.toContain(env.MCP_API_KEY);
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(env.MCP_API_KEY);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain("mock discovery stop");
+      expect(JSON.parse(consoleError.mock.calls[0][0])).toMatchObject({ kind: "live_host_failure", phase: "discovery", causes: [{ type: "Error", category: "unknown_error" }] });
+      expect(clientFactory).toHaveBeenCalledTimes(5);
+      for (const [options] of clientFactory.mock.calls) {
+        expect(options).toMatchObject({ transport: { type: "http", headers: { apikey: env.MCP_API_KEY } } });
+      }
+    } finally {
+      consoleError.mockRestore();
+      clientFactory.mockReset();
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("replays same live request ID once and rejects payload reuse without another agent call", async () => {
     const env = {
       DEMO_MODE: "live", LIVE_ACCESS_APPROVED: "true", LIVE_UI_ENABLED: "true", AI_GATEWAY_BASE_URL: "https://example.invalid", AI_GATEWAY_API_KEY: "present",
-      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
+      AI_GATEWAY_MODEL: "model", AI_GATEWAY_TIMEOUT_MS: "5000", AI_GATEWAY_REQUEST_BUDGET: "2", MCP_API_KEY: "mcp-dummy", MCP_TIMEOUT_MS: "5000", MCP_TOOL_INVOCATION_BUDGET: "8",
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000", AI_GATEWAY_JEV_ATTEMPT_BUDGET: "1",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
     } as unknown as NodeJS.ProcessEnv;
@@ -428,7 +673,7 @@ describe("bounded chat history and per-turn evidence", () => {
     const turns: ChatTurn<typeof evidenceOne>[] = [
       { id: "live-s1-1", caseId: "S1", mode: "live", inquiry: "S1 first", replies: [{ label: "Normal LLM", text: "one" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceOne },
       { id: "live-s2-1", caseId: "S2", mode: "live", inquiry: "S2", replies: [{ label: "Normal LLM", text: "other case" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceTwo },
-      { id: "offline-s1-1", caseId: "S1", mode: "offline", inquiry: "fixture", replies: [{ label: "OFFLINE FIXTURE / not LLM output", text: "fixture" }], safeTools: projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture" }] }), evidence: evidenceTwo },
+      { id: "offline-s1-1", caseId: "S1", mode: "offline", inquiry: "fixture", replies: [{ label: "OFFLINE FIXTURE / not LLM output", text: "fixture" }], safeTools: projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture", actor: "fixture" }] }), evidence: evidenceTwo },
     ];
     expect(recentConversationHistory(turns, "S1", "live")).toEqual([{ caseId: "S1", mode: "live", userText: "S1 first", assistantText: "Normal LLM: one" }]);
     expect(recentConversationHistory(turns, "S2", "live")).toEqual([{ caseId: "S2", mode: "live", userText: "S2", assistantText: "Normal LLM: other case" }]);
@@ -454,13 +699,56 @@ describe("bounded chat history and per-turn evidence", () => {
 
     const safe = projectSafeToolStatus("completed", {
       invocationCount: 1,
-      receipts: [{ tool: "claim", status: "completed", source: "live_api", rawResult: "CANARY-RAW-RESULT" }],
+      receipts: [{ tool: "claim", status: "completed", source: "live_api", actor: "llm", rawResult: "CANARY-RAW-RESULT" }],
       error: "CANARY-RAW-ERROR",
     });
     expect(safe).toEqual({ state: "completed", invocationCount: 1, receipts: [] });
     expect(JSON.stringify(safe)).not.toMatch(/CANARY|rawResult|error/i);
-    const fixturePlan = projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture" }] });
+    const fixturePlan = projectSafeToolStatus("completed_fixture", { invocationCount: 0, receipts: [{ tool: "claim", status: "fixture_plan_only", source: "offline_fixture", actor: "fixture" }] });
     expect(fixturePlan.invocationCount).toBe(0);
     expect(fixturePlan.receipts[0]).toMatchObject({ status: "fixture_plan_only", source: "offline_fixture" });
+    const host = projectSafeToolStatus("completed", { invocationCount: 1, receipts: [{ tool: "customer", status: "completed", source: "live_api", actor: "host" }] });
+    expect(host.receipts[0]).toMatchObject({ actor: "host", tool: "customer" });
   });
+});
+
+
+it("classifies fixed public JS/SDK types and public constructor fallback without exposing unknown names or text", async () => {
+  const { classifyHostFailure } = await import("../../src/lib/gateway-agent");
+  const canary = "PRIVATE_CANARY customer CUS-000011 unknown-message";
+  for (const error of [new TypeError(canary), new RangeError(canary), new SyntaxError(canary), new ReferenceError(canary)]) {
+    expect(classifyHostFailure(error)[0]).toMatchObject({ type: error.name, category: "javascript_runtime_error" });
+    expect(JSON.stringify(classifyHostFailure(error))).not.toContain(canary);
+  }
+  for (const name of ["AI_ToolChoiceViolationError", "AI_MissingToolResultsError", "AI_TypeValidationError", "AI_InvalidResponseDataError", "AI_JSONParseError", "AI_SerializationError"]) {
+    expect(classifyHostFailure({ name, message: canary })[0].type).toBe(name);
+  }
+  expect(classifyHostFailure({ name: canary, constructor: { name: "TypeError" }, message: canary })[0].type).toBe("TypeError");
+  expect(classifyHostFailure({ name: canary, constructor: { name: "ToolChoiceViolationError" }, message: canary })[0].type).toBe("AI_ToolChoiceViolationError");
+  expect(classifyHostFailure({ name: canary, constructor: { name: canary }, message: canary })[0]).toEqual({ type: "unknown_error_type", category: "unknown_error" });
+  expect(JSON.stringify(classifyHostFailure({ name: canary, message: canary }))).not.toContain(canary);
+});
+
+
+it("reproduces required-tool-choice violation with the actual SDK and synthetic HTTP200 text-only response, without network", async () => {
+  const { generateText, tool, jsonSchema } = await vi.importActual<typeof import("ai")>("ai");
+  const { createOpenAI } = await vi.importActual<typeof import("@ai-sdk/openai")>("@ai-sdk/openai");
+  const { classifyHostFailure } = await import("../../src/lib/gateway-agent");
+  let requests = 0;
+  let wireChoice: unknown;
+  const model = createOpenAI({ apiKey: "synthetic-dummy-not-a-credential", fetch: async (_input, init) => {
+    requests++;
+    const body = JSON.parse(init!.body as string);
+    wireChoice = body.tool_choice;
+    return new Response(JSON.stringify({ id: "synthetic-completion", object: "chat.completion", created: 1, model: "synthetic-model",
+      choices: [{ index: 0, message: { role: "assistant", content: "synthetic text-only response" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { "content-type": "application/json" } });
+  } }).chat("synthetic-model");
+  const outcome = await generateText({ model, prompt: "synthetic required-tool contract",
+    tools: { read_detail: tool({ description: "Synthetic read", inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, additionalProperties: false }), execute: async () => ({ synthetic: true }) }) },
+    toolChoice: "required", maxRetries: 0 }).then(() => null, (error: unknown) => error);
+  expect(requests).toBe(1);
+  expect(wireChoice).toBe("required");
+  expect(classifyHostFailure(outcome)[0]).toEqual({ type: "AI_ToolChoiceViolationError", category: "model_tool_choice_violation" });
+  expect(JSON.stringify(classifyHostFailure(outcome))).not.toContain("synthetic text-only response");
 });

@@ -1,0 +1,16 @@
+{
+  "display_name": "Insurance Demo TypeSafe Provider (owner review)",
+  "name": "insurance-demo-typesafe",
+  "type": "typesafe",
+  "config": {
+    "auth": {
+      "type": "basic",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer REPLACE_WITH_OWNER_MANAGED_TYPESAFE_CREDENTIAL"
+        }
+      ]
+    }
+  }
+}

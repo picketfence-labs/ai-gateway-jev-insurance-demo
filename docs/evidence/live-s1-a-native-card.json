@@ -1,0 +1,52 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "desk": {
+      "type": "choice",
+      "choice": "claim_progress",
+      "probabilities": {
+        "general_intake": 0,
+        "payment_status": 0,
+        "claim_progress": 1,
+        "application_status": 0,
+        "policy_information": 0
+      },
+      "confidence": 1
+    },
+    "priority": {
+      "type": "score",
+      "score": 1.24,
+      "legend": {
+        "0": "0: ordinary status or procedure inquiry",
+        "1": "1: additional clarification or reported mismatch",
+        "2": "2: explicit wish for early human contact"
+      },
+      "probabilities": {
+        "0": 0.36,
+        "1": 0.05,
+        "2": 0.59
+      },
+      "confidence": 0
+    },
+    "next_check": {
+      "type": "choice",
+      "choice": "claim_progress",
+      "probabilities": {
+        "application_correction": 0,
+        "payment_receipt": 0,
+        "claim_progress": 0.87,
+        "payment_amount": 0,
+        "claim_additional_information": 0.03,
+        "clarify_intent": 0.1,
+        "application_progress": 0,
+        "policy_information": 0
+      },
+      "confidence": 0.85
+    }
+  },
+  "usage": {
+    "input_tokens": 745,
+    "output_tokens": 160
+  },
+  "warnings": []
+}

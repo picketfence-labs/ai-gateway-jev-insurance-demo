@@ -1,0 +1,28 @@
+{
+  "claim": {
+    "claim_id": "CLM-000015",
+    "customer_id": "CUS-000011",
+    "policy_id": "POL-000042",
+    "claim_type": "自動車事故",
+    "status": "審査中",
+    "claim_amount_requested": 462000,
+    "claim_amount_paid": null
+  },
+  "customer": {
+    "customer_id": "CUS-000011",
+    "record_found": true
+  },
+  "policy": {
+    "policy_id": "POL-000042",
+    "customer_id": "CUS-000011",
+    "product_id": "PRD-002",
+    "status": "有効"
+  },
+  "product": {
+    "product_id": "PRD-002",
+    "product_name": "自動車保険「ドライブセーフ」",
+    "category": "自動車保険",
+    "coverage_summary": "対人・対物・車両保険",
+    "status": "販売中"
+  }
+}

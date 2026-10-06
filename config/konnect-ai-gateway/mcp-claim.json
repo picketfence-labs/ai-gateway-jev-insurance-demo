@@ -1,0 +1,21 @@
+{
+  "display_name": "Insurance Demo Claim MCP (owner review)",
+  "name": "insurance-demo-claim-mcp",
+  "type": "conversion-listener",
+  "enabled": false,
+  "access": { "auth_strategies": ["insurance-demo-mcp-key-auth"] },
+  "config": {
+    "url": "http://claim-api:8000",
+    "route": { "paths": ["/mcp/claim"] },
+    "logging": { "payloads": false }
+  },
+  "tools": [
+    {
+      "name": "get_claim_claims__claim_id__get",
+      "description": "Read one synthetic claim detail for the current insurance case.",
+      "method": "GET",
+      "path": "/mcp/claim/claims/{claim_id}",
+      "parameters": [{ "name": "claim_id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    }
+  ]
+}

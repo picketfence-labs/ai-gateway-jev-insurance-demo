@@ -1,0 +1,16 @@
+{
+  "display_name": "Insurance Demo Gemini Provider (owner review)",
+  "name": "insurance-demo-gemini",
+  "type": "gemini",
+  "config": {
+    "auth": {
+      "type": "basic",
+      "headers": [
+        {
+          "name": "x-goog-api-key",
+          "value": "REPLACE_WITH_OWNER_MANAGED_GEMINI_CREDENTIAL"
+        }
+      ]
+    }
+  }
+}

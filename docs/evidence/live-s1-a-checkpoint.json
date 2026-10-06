@@ -1,0 +1,68 @@
+{
+  "window": {
+    "start": "2026-10-06T12:23:17+09:00",
+    "end": "2026-10-06T12:28:57+09:00"
+  },
+  "dp_access_response_counts": {
+    "mcp_protocol_unclassified:200": 14,
+    "normal:200": 5,
+    "jev:200": 1
+  },
+  "dp_other_access_count": 0,
+  "dp_log_command_exit": 0,
+  "api_get_response_projection": {
+    "customer": {
+      "get_response_statuses": [
+        200
+      ],
+      "log_command_exit": 0
+    },
+    "product": {
+      "get_response_statuses": [
+        200
+      ],
+      "log_command_exit": 0
+    },
+    "application": {
+      "get_response_statuses": [],
+      "log_command_exit": 0
+    },
+    "claim": {
+      "get_response_statuses": [
+        200
+      ],
+      "log_command_exit": 0
+    },
+    "policy": {
+      "get_response_statuses": [
+        200
+      ],
+      "log_command_exit": 0
+    }
+  },
+  "safe_host_failure_events": [],
+  "web_log_command_exit": 0,
+  "count_scope": "observed responses, not strict reservation/wire/billing totals",
+  "single_browser_submission": 1,
+  "ui_receipt_actors": {
+    "llm": 4,
+    "host": 0
+  },
+  "ui_unique_business_gets": 4,
+  "observations_jst": {
+    "before_submission": "2026-10-06 12:23:17 JST",
+    "completion_observed": "2026-10-06 12:24:11 JST",
+    "web_stopped": "2026-10-06 12:28:57 JST"
+  },
+  "actual_web_image": "sha256:6c29a58e6bb23a25545345d70903c1d573fdabb75da208113442ac88098ea5ae",
+  "limitations": [
+    "Host completion covered by mocks only; live host calls 0",
+    "Normal strict reservation snapshots not retained",
+    "Protocol responses are not MCP business invocation counts",
+    "Monetary cost unknown; not zero",
+    "Individual plugin handler trace unobserved",
+    "Original live images precede two display-only mapping fixes"
+  ],
+  "final_display_image_build_only": "sha256:6f0819924e9a6a632ef444081347e9c4887f8260f7ecd7978c8b943c2a0e5fec",
+  "final_image_started": false
+}

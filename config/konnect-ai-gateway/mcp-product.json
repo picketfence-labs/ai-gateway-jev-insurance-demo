@@ -1,0 +1,21 @@
+{
+  "display_name": "Insurance Demo Product MCP (owner review)",
+  "name": "insurance-demo-product-mcp",
+  "type": "conversion-listener",
+  "enabled": false,
+  "access": { "auth_strategies": ["insurance-demo-mcp-key-auth"] },
+  "config": {
+    "url": "http://product-api:8000",
+    "route": { "paths": ["/mcp/product"] },
+    "logging": { "payloads": false }
+  },
+  "tools": [
+    {
+      "name": "get_product_products__product_id__get",
+      "description": "Read one synthetic product detail for the current insurance case.",
+      "method": "GET",
+      "path": "/mcp/product/products/{product_id}",
+      "parameters": [{ "name": "product_id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    }
+  ]
+}

@@ -36,7 +36,7 @@ export function createOfflinePreview(caseId: CaseId, comparison: boolean, failur
       : { complete: true, jevCalls: 0, reason: "オフラインサンプルのみです。Jevリクエストは送信していません。" },
     toolStatus: {
       invocationCount: 0,
-      receipts: scenario.toolOrder.map((tool) => ({ tool, status: "fixture_plan_only" as const, source: "offline_fixture" as const })),
+      receipts: scenario.toolOrder.map((tool) => ({ tool, status: "fixture_plan_only" as const, source: "offline_fixture" as const, actor: "fixture" as const })),
     },
     jevCard: decision ? { label: "OFFLINE FIXTURE / Jev未実行", criteriaVersion: "insurance-intake-v1", ...decision } : null,
     error: failure === "jev-failure" ? "オフラインサンプル：Jev判断に失敗した状態です。代替スコアは表示していません。" : null,

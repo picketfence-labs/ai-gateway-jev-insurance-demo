@@ -20,20 +20,22 @@ Exclude Simulation, list/search/write tools, real personal data, underwriting, p
 
 - UI reference: [konnect-code-mode-mcp](https://github.com/picketfence-labs/konnect-code-mode-mcp/tree/138387290258bab07d86e7544a6ddb33e9f4a6fb/chat-ui), Next.js/React/TypeScript, AI SDK streaming and MCP client. It is a reference, not code already copied here.
 - API reference: [kong-api-bundle-insurance](https://github.com/picketfence-labs/kong-api-bundle-insurance/tree/ab96eea303e27fe02d98344a31bc7633753da77e), independent Python/FastAPI seed services. Source commit is known; image digest correspondence is not verified.
-- Proposed deployment: local Compose, five API containers, one AI Gateway 2.2.0 data plane, and one UI/backend container. No Compose implementation yet. Do not copy the existing full Kubernetes stack.
-- Konnect-managed control plane with a self-managed data plane; five logical MCP endpoints on the same data plane. Exact configuration remains subject to a smoke test.
+- Deployment scaffold: local Compose describes five internal API containers, the AI Gateway 2.2.0 data-plane image, and this UI/backend. The topology is authored but has not been built or started; see [Compose owner inputs and validation boundary](ai-gateway-compose.md). Do not copy the existing full Kubernetes stack.
+- Konnect-managed AI Gateway control plane with a self-managed data plane; five logical MCP endpoints must be configured as AI MCP Server entities on the same data plane. Model/provider/MCP entities, route paths, auth, certificates, and upstream connectivity remain owner inputs and unverified.
 - Jev always uses a TypeSafe native Route through AI Gateway. A fixed model target is preferred; availability and pin are not confirmed.
-- Normal LLM routing through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. The live adapter uses the OpenAI-compatible AI SDK provider behind a configured Gateway endpoint. Gemini is the first provider candidate, but the provider/model/pin, Gateway endpoint/configuration, environment-variable contract, and end-to-end tool behavior remain unverified. The live route requires server mode, separate approval and UI-enable flags, plus complete configuration. Do not set them or make live calls without a separate approved scope.
+- Normal LLM routing through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. The live adapter uses the OpenAI-compatible AI SDK provider behind a configured Gateway endpoint. One normal AI Model with Gemini and GPT/OpenAI targets is planned; exact model IDs, target routing/fallback policy, provider credentials, Gateway endpoint/configuration, environment-variable contract, and end-to-end tool behavior remain unverified owner inputs. The live route requires server mode, separate approval and UI-enable flags, plus complete configuration. Do not set them or make live calls without a separate approved scope.
 - The repository pins Next.js, React, TypeScript, the AI SDK, MCP client, provider adapter, and Vitest dependencies. It has build, typecheck, lint, test, secret-scan, and offline CI commands. These checks do not prove the configured Gateway, model, MCP services, native Jev route, or auth headers work.
-- The local UI runs on `127.0.0.1:3000`. Compose, API service images, Gateway runtime, Konnect configuration, and model connections are not implemented or tested.
+- The local UI is published on loopback port `3000` by the Compose scaffold. Dummy-environment `docker compose config --quiet` passed as static configuration only; no image build/start, API image, Gateway runtime, Konnect entity, MCP, model, or Jev connection was tested.
 
 ## A: Agent calls tools
 
-The UI selects S1/S2/S3 and accepts editable synthetic inquiry text. The normal LLM chooses the GET tools and their order. The host does not prefetch all facts or silently complete the agent's plan.
+The UI selects S1/S2/S3 and accepts editable synthetic inquiry text. The normal LLM has optional GET tools and chooses whether to call them and their order (`toolChoice: auto`). After a successful normal-model completion only, the host may fetch the still-missing required facts for the selected synthetic case. This bounded completion is visible as host/app-initiated MCP work; it is not represented as an LLM tool call. A normal LLM transport/SDK failure stops the turn and never triggers host completion.
 
 Tool wrappers allow only the preset root ID and IDs discovered from successful API responses. Arbitrary URLs, unrelated IDs, undiscovered references, list/write tools, and a Jev tool are rejected before network access. Valid dependency-independent calls may run in parallel.
 
-Record successful projected tool results in a turn-local ledger. Application requires application/customer/product; claim requires claim/customer/policy/product. LLM statements and prior conversation do not satisfy this set. Unused tools, incomplete acquisition, scope violations, or limits produce an explicit unassessed result.
+Record successful projected tool results in a turn-local ledger. Application requires application/customer/product; claim requires claim/customer/policy/product. LLM statements and prior conversation do not satisfy this set. Host completion may use only the selected case's root ID and relationship IDs discovered in projected facts actually acquired during this turn; static expected IDs may validate scope but are not an ID source. Never use prior-turn facts, arbitrary user IDs, or hidden REST calls. Reuse successful facts without duplicate GETs. Missing or inconsistent roots/references, scope violations, or exhausted limits stop before Jev and yield an explicit unassessed result. UI receipts identify each initiator as LLM or host/app evaluation preparation, in Japanese, and briefly disclose possible host completion before submission.
+
+The existing explicit same-facts comparison is a separate exception: its trusted server-owned `parent_snapshot` supplies the selected snapshot, with zero live GETs and no live fallback. Conversation history and implicit reuse of earlier facts remain prohibited as acquisition sources.
 
 ## Projection before SDK and stream
 
@@ -57,9 +59,9 @@ Editable user text has a separate disclosure boundary. API projection cannot rem
 
 ## B: Host calls Jev once
 
-Every submission for a selected scenario is an evaluation turn. Eligibility requires valid text/scope, the complete required tool ledger, valid types/nulls, all matching references, a projected snapshot, and remaining approved budget.
+Every submission for a selected scenario is an evaluation turn. Eligibility requires valid text/scope, the complete required tool ledger (from successful LLM-selected calls plus any bounded host completion after normal-model completion), valid types/nulls, all matching references, a projected snapshot, and remaining approved budget. LLM transport/SDK failure, incomplete host acquisition, or reference/scope errors stop before Jev.
 
-Reserve run/attempt before sending. Eligible turns make one request with three questions, at most one attempt. Incomplete facts, 404, type errors, missing fields, scope errors, or inconsistent references make zero Jev calls. No host auto-fetch fallback.
+Reserve run/attempt before sending. Eligible turns make one request with three questions, at most one attempt. Incomplete facts, 404, type errors, missing fields, scope errors, or inconsistent references make zero Jev calls. Host completion is limited to the still-missing selected-case facts under the same wrappers, ledger, projection, and budget; it cannot silently substitute for a failed normal LLM call.
 
 Send host-ledger facts, current inquiry, and versioned demo criteria as a JSON-string state. Do not mix LLM summaries into API facts. Timeouts and HTTP failures consume the attempt. Only an explicit new run with remaining budget can retry.
 
@@ -114,7 +116,7 @@ Before live work, confirm the configured Gateway endpoint and payload destinatio
 
 Follow [test-plan.md](test-plan.md). Offline unit contracts, the local UI, CI, and documented commands are implemented. Independent review and final handoff checks are tracked in the troubleshooting log. Passing offline checks do not authorize or validate a live connection.
 
-Bootstrap remains partial: the private repository, [Issue #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1), pinned dependencies, offline code, tests, and CI exist. Independent code review is required before the owner accepts the demo. Live setup, external requests, Compose, and hosted deployment remain outside the implemented scope. A feature-branch PR receives independent review; the owner merges and performs demo acceptance. Close the work item only after technical evidence and business acceptance.
+Bootstrap remains partial: the private repository, [Issue #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1), pinned dependencies, offline code, tests, CI, and a static Compose scaffold exist. Independent code review is required before the owner accepts the demo. Compose image build/start, Konnect entity setup, live requests, and hosted deployment remain unverified/outside this scaffold. A feature-branch PR receives independent review; the owner merges and performs demo acceptance. Close the work item only after technical evidence and business acceptance.
 
 Read README, this brief, ADR, test plan, and the current work item first. Offline implementation is authorized within that scope. Do not treat this authorization as permission for live work.
 

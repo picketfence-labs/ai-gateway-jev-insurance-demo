@@ -4,6 +4,7 @@ export type LiveConfig = {
   gatewayModel: string;
   gatewayTimeoutMs: number;
   gatewayRequestBudget: number;
+  mcpApiKey: string;
   mcpTimeoutMs: number;
   mcpToolInvocationBudget: number;
   mcpUrls: Record<string, string>;
@@ -39,6 +40,7 @@ export function validateLiveConfig(env: NodeJS.ProcessEnv): ConfigResult {
   const gatewayModel = env.AI_GATEWAY_MODEL;
   const gatewayTimeoutMs = positiveInteger(env.AI_GATEWAY_TIMEOUT_MS);
   const gatewayRequestBudget = positiveInteger(env.AI_GATEWAY_REQUEST_BUDGET);
+  const mcpApiKey = env.MCP_API_KEY;
   const mcpTimeoutMs = positiveInteger(env.MCP_TIMEOUT_MS);
   const mcpToolInvocationBudget = positiveInteger(env.MCP_TOOL_INVOCATION_BUDGET);
   const jevUrl = httpUrl(env.AI_GATEWAY_JEV_URL);
@@ -47,7 +49,7 @@ export function validateLiveConfig(env: NodeJS.ProcessEnv): ConfigResult {
   const jevTimeoutMs = positiveInteger(env.AI_GATEWAY_JEV_TIMEOUT_MS);
   const jevAttemptBudget = positiveInteger(env.AI_GATEWAY_JEV_ATTEMPT_BUDGET);
   const mcpEntries = endpointKeys.map((key) => [key, httpUrl(env[key])] as const);
-  if (!gatewayUrl || !gatewayApiKey || !gatewayModel || !gatewayTimeoutMs || !gatewayRequestBudget || !mcpTimeoutMs || !mcpToolInvocationBudget || !jevUrl || !jevApiKey || !jevModel || !jevTimeoutMs || !jevAttemptBudget || mcpEntries.some(([, url]) => !url)) {
+  if (!gatewayUrl || !gatewayApiKey || !gatewayModel || !gatewayTimeoutMs || !gatewayRequestBudget || !mcpApiKey || !mcpTimeoutMs || !mcpToolInvocationBudget || !jevUrl || !jevApiKey || !jevModel || !jevTimeoutMs || !jevAttemptBudget || mcpEntries.some(([, url]) => !url)) {
     return { ok: false, reason: "Required live Gateway, MCP, Jev, model, timeout, or request-budget configuration is missing or invalid." };
   }
   return {
@@ -58,6 +60,7 @@ export function validateLiveConfig(env: NodeJS.ProcessEnv): ConfigResult {
       gatewayModel,
       gatewayTimeoutMs,
       gatewayRequestBudget,
+      mcpApiKey,
       mcpTimeoutMs,
       mcpToolInvocationBudget,
       mcpUrls: Object.fromEntries(mcpEntries.map(([key, url]) => [key.replace("MCP_", "").replace("_URL", "").toLowerCase(), url!])),

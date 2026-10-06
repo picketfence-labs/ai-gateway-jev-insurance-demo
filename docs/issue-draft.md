@@ -11,7 +11,7 @@ Implement the adopted [design brief](https://github.com/picketfence-labs/ai-gate
 - No fixed-flow replacement for the LLM agent. No optional Jev agent tool.
 - No write/list/Simulation tools, unrelated IDs, real personal data, raw customer leakage, or simulated live scores.
 - Offline implementation and mocked transport tests first. No paid model calls, credential access, Konnect changes, public hosting, or live container startup without a separate approved scope.
-- Proposed Compose topology is five API containers, one data plane, and one UI/backend. It is not implemented by this draft.
+- The local Compose topology scaffold now describes five internal API containers, one AI Gateway 2.2 DP, and one UI/backend. Only dummy-env static configuration was checked; the images were not built or started and Konnect/model/MCP/Jev connectivity remains unverified. See [owner inputs and validation boundary](ai-gateway-compose.md).
 - The normal LLM route through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. Gemini is the first provider candidate, but provider/model/pin, Gateway configuration, and end-to-end tool/streaming behavior remain unverified. Do not infer live approval from this route decision or the existing UI reference.
 
 ## Deliverables and acceptance
