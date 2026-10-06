@@ -525,3 +525,89 @@ HTTP 502 without preserving a safe failure phase or final card; this is a
 diagnostic limitation. Since ordinary missing-fact ineligibility returns HTTP
 200, the 502 indicates an exception in acquisition/validation before Jev, but
 the exact throw point and cause were not preserved.
+
+
+## Failure-phase checkpoint — 2026-10-06, stopped 11:04:40 JST
+
+The owner authorized safe host-failure instrumentation, local fault tests, and
+exactly one further S1 turn. No prompt, model, CP schema, retry, or budget changed.
+The instrumentation emits fixed phases, bounded type/category cause chains,
+host reservation snapshots, and entity/status receipts without IDs or facts.
+The separately approved HTTP error logger still retains short bounded,
+known-secret-redacted explanations on the server; it does not guarantee detection
+of arbitrary unknown PII. Such explanations require local review before sharing.
+The fixed host-event tests do not claim whole-console PII detection.
+
+Local checks passed: 46 tests (39 contracts plus 7 execution-path fault tests),
+lint without warnings, typecheck, secret scan (54 files, 0 findings), diff check,
+and the final Docker web build. B independently ran the 7 new fault tests and
+reviewed the critical source/test delta PASS. The rebuilt image was
+`sha256:3666eaf8c82646a5cdbc8d568c9c3a6ea788025eab560181a04c4fc34d73c113`.
+
+A new web process started at the 11:02:53 `date` checkpoint. The pre-send `date`
+was 11:03:08; the web-stop `date` was 11:04:40. These are observation checkpoints,
+not a measured provider/request duration. The single S1 returned HTTP 502 and
+produced no Jev card. Fixed events reported `normal_sdk`, then `acquisition`,
+with `unknown_error_type` / `unknown_error`; the concrete exception type and
+cause were not retained. Both events held the same reservation snapshot:
+normal Gateway 2, acquisition generations 2, supplement generations 0, MCP
+invocations 1, own-run Jev reservation 0, process Jev budget reservations 0.
+Do not sum duplicated phase-event snapshots. The acquired kind was `claim` and
+the only receipt was `claim: completed`. This identifies an exception during
+SDK acquisition after HTTP responses, not successful SDK completion.
+
+DP logs separately observed 2 normal HTTP 200 responses, 1 business MCP call
+and claim GET HTTP 200; no other business GET or Jev route was observed. Five
+`tools/list` discovery calls are separate. No non-2xx HTTP-explanation event was
+recorded. The previous four turns' 9 normal / 6 business MCP / 0 observed Jev
+remain a separate historical log count; neither set is a provider-billing ledger
+or proof of zero charges. Actual cost remains unknown.
+
+Further S1/S2/S3 traffic is stopped; own web is stopped, DP and five APIs retained,
+with no cleanup/deletion. Screenshot [Japanese safe failure](evidence/live-s1-phase-failure.png)
+is one viewport capture of the single turn, not a full-page tiled composition.
+The live Jev demo remains incomplete. Process feedback: the new records recover
+phase and reservation provenance, but fixed unknown-type classification still
+does not identify this exception's concrete cause; no blind retry is authorized.
+
+
+### Post-stop, API-free diagnostic corrections
+
+After the S1 stop, the fixed classifier was expanded to public JavaScript
+builtins and 35 static `AI_*` names checked in installed `ai@7.0.92`,
+`@ai-sdk/provider@4.0.10`, and `@ai-sdk/provider-utils@5.0.36` sources. Both
+`error.name` and constructor-name fallback match only this fixed public catalog;
+the fixed host-failure event emits no unknown values, messages, stacks or error payload fields.
+A canary/constructor-fallback test was added. These changes were **not** in the
+11:03 S1 image and cannot restore its lost concrete exception type. Missing
+classifier coverage is a diagnostic defect, not an identified live root cause.
+
+An API-free reproduction using actual `generateText` and the actual OpenAI
+adapter received one synthetic mocked HTTP 200 response containing text and no
+`tool_calls` while wire `tool_choice` was `required`. It raised the public
+`AI_ToolChoiceViolationError`, now classified as `model_tool_choice_violation`.
+This is a reproducible candidate condition, not proof of the actual S1 cause;
+its original normalized response/type was not retained. The reproduction is a
+unit test, independently executed by B without network. Final local tests are
+48/48 (41 contracts and 7 execution-path faults), with typecheck passing.
+
+The separate MCP converter hypothesis did **not** reproduce a TypeError:
+`@ai-sdk/mcp@2.0.44` `src/tool/mcp-client.ts:209–238` converts output without a
+`content` array to `{type: "json", value: result}`. A real SDK tool constructed
+with a no-I/O transport converted the synthetic wrapper's `{source, data}`
+successfully; B independently checked the source. This does not prove the
+actual S1 output shape or error cause.
+
+`@ai-sdk/openai@4.0.60` maps required choice to wire `tool_choice: "required"`
+(`src/chat/openai-chat-prepare-tools.ts:55–66`). The local checkout references
+the Gateway 2.2 image rather than its converter source. Consequently required
+to Gemini `function_calling_config` / `ANY` conversion remains unverified;
+Google's ANY documentation and the client serializer do not establish it, and
+missing source is not evidence of non-support. No further paid/API/turn trial
+was performed after the stop.
+
+Post-stop lint, typecheck, 48 tests, secret scan (54 files/0 findings), diff check
+and offline Docker web build all passed. The post-stop build image is
+`sha256:fb50049c62418c3f9ddb5dd57d5d00d9caf5f8b4e2b775eeff9dd435e8aff90c`;
+it was not started for another turn. The 11:03 S1 used the earlier
+`3666eaf8...` image, so the later catalog does not retroactively identify its error.

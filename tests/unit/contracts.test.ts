@@ -509,7 +509,10 @@ describe("offline and live gates", () => {
       const response = await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic only", requestId: requestId(31) }, process.env);
       expect(response).toMatchObject({ status: 502, payload: { error: "The live agent failed safely. No transport details were returned." } });
       expect(JSON.stringify(response)).not.toContain(env.MCP_API_KEY);
-      expect(consoleError).not.toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(env.MCP_API_KEY);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain("mock discovery stop");
+      expect(JSON.parse(consoleError.mock.calls[0][0])).toMatchObject({ kind: "live_host_failure", phase: "discovery", causes: [{ type: "Error", category: "unknown_error" }] });
       expect(clientFactory).toHaveBeenCalledTimes(5);
       for (const [options] of clientFactory.mock.calls) {
         expect(options).toMatchObject({ transport: { type: "http", headers: { apikey: env.MCP_API_KEY } } });
@@ -661,4 +664,45 @@ describe("bounded chat history and per-turn evidence", () => {
     expect(fixturePlan.invocationCount).toBe(0);
     expect(fixturePlan.receipts[0]).toMatchObject({ status: "fixture_plan_only", source: "offline_fixture" });
   });
+});
+
+
+it("classifies fixed public JS/SDK types and public constructor fallback without exposing unknown names or text", async () => {
+  const { classifyHostFailure } = await import("../../src/lib/gateway-agent");
+  const canary = "PRIVATE_CANARY customer CUS-000011 unknown-message";
+  for (const error of [new TypeError(canary), new RangeError(canary), new SyntaxError(canary), new ReferenceError(canary)]) {
+    expect(classifyHostFailure(error)[0]).toMatchObject({ type: error.name, category: "javascript_runtime_error" });
+    expect(JSON.stringify(classifyHostFailure(error))).not.toContain(canary);
+  }
+  for (const name of ["AI_ToolChoiceViolationError", "AI_MissingToolResultsError", "AI_TypeValidationError", "AI_InvalidResponseDataError", "AI_JSONParseError", "AI_SerializationError"]) {
+    expect(classifyHostFailure({ name, message: canary })[0].type).toBe(name);
+  }
+  expect(classifyHostFailure({ name: canary, constructor: { name: "TypeError" }, message: canary })[0].type).toBe("TypeError");
+  expect(classifyHostFailure({ name: canary, constructor: { name: "ToolChoiceViolationError" }, message: canary })[0].type).toBe("AI_ToolChoiceViolationError");
+  expect(classifyHostFailure({ name: canary, constructor: { name: canary }, message: canary })[0]).toEqual({ type: "unknown_error_type", category: "unknown_error" });
+  expect(JSON.stringify(classifyHostFailure({ name: canary, message: canary }))).not.toContain(canary);
+});
+
+
+it("reproduces required-tool-choice violation with the actual SDK and synthetic HTTP200 text-only response, without network", async () => {
+  const { generateText, tool, jsonSchema } = await vi.importActual<typeof import("ai")>("ai");
+  const { createOpenAI } = await vi.importActual<typeof import("@ai-sdk/openai")>("@ai-sdk/openai");
+  const { classifyHostFailure } = await import("../../src/lib/gateway-agent");
+  let requests = 0;
+  let wireChoice: unknown;
+  const model = createOpenAI({ apiKey: "synthetic-dummy-not-a-credential", fetch: async (_input, init) => {
+    requests++;
+    const body = JSON.parse(init!.body as string);
+    wireChoice = body.tool_choice;
+    return new Response(JSON.stringify({ id: "synthetic-completion", object: "chat.completion", created: 1, model: "synthetic-model",
+      choices: [{ index: 0, message: { role: "assistant", content: "synthetic text-only response" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { "content-type": "application/json" } });
+  } }).chat("synthetic-model");
+  const outcome = await generateText({ model, prompt: "synthetic required-tool contract",
+    tools: { read_detail: tool({ description: "Synthetic read", inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, additionalProperties: false }), execute: async () => ({ synthetic: true }) }) },
+    toolChoice: "required", maxRetries: 0 }).then(() => null, (error: unknown) => error);
+  expect(requests).toBe(1);
+  expect(wireChoice).toBe("required");
+  expect(classifyHostFailure(outcome)[0]).toEqual({ type: "AI_ToolChoiceViolationError", category: "model_tool_choice_violation" });
+  expect(JSON.stringify(classifyHostFailure(outcome))).not.toContain("synthetic text-only response");
 });
