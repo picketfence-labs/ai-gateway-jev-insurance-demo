@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded, secret-free diagnostics for this demo's models endpoint. No CLI POST.
+"""Bounded, redacted diagnostics for this demo's models endpoint. No CLI POST.
 
 Additional POSTs remain paused. Importing request_models with allow_post=True
 is only a mechanical guard, not permission; a new owner decision is required.
@@ -10,12 +10,16 @@ import io
 import json
 import os
 from pathlib import Path
+import base64
+import re
 import socket
 import ssl
+import stat
 import unittest
 from unittest.mock import patch
 import urllib.error
 import urllib.request
+import urllib.parse
 
 URL = "https://us.api.konghq.com/v1/ai-gateways/3754a93c-fba3-4b95-adbb-b429816b431c/models"
 BODY_HASH = "3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791"
@@ -26,6 +30,85 @@ FIELDS = {"name", "type", "capabilities", "capabilities.0", "formats.0.type",
 CODES = {"VALIDATION_ERROR", "INVALID_ARGUMENT", "INVALID_REQUEST", "BAD_REQUEST",
          "SCHEMA_VALIDATION_FAILED", "UNAUTHORIZED", "FORBIDDEN", "CONFLICT",
          "bad-request", "unauthorized", "forbidden", "not-found", "conflict", "internal"}
+CONTAINERS = {"error", "errors", "details", "detail", "fields"}
+EXPLANATIONS = {"message", "title", "detail", "error"}
+
+
+def known_secret_values():
+    """Local secrets are read only to redact; never returned as evidence."""
+    sensitive = re.compile(r"authorization|api.?key|token|password|secret|credential", re.I)
+    values = {v for k, v in os.environ.items() if v and sensitive.search(k)}
+    root = Path(__file__).resolve().parent.parent
+    for name in (".env.live.local", ".env.upstream-handoff.local"):
+        path = root / name
+        try:
+            with path.open("r", opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW)) as file:
+                if stat.S_IMODE(os.fstat(file.fileno()).st_mode) != 0o600:
+                    raise ValueError("Secret redaction file permissions")
+                text = file.read(65536)
+            if len(text) == 65536:
+                raise ValueError("Secret redaction file too large")
+            if name.endswith("handoff.local"):
+                entries = json.loads(text)
+            else:
+                entries = dict(line.split("=", 1) for line in text.splitlines()
+                               if "=" in line and not line.lstrip().startswith("#"))
+            values.update(v.strip().strip("\"'") for k, v in entries.items()
+                          if isinstance(v, str) and v.strip() and sensitive.search(k))
+        except FileNotFoundError:
+            pass
+    return values
+
+
+def safe_explanations(parsed, secrets):
+    """Bounded known envelopes; preserve explanations, not raw JSON values."""
+    variants = set()
+    for secret in secrets:
+        if secret:
+            quoted = (urllib.parse.quote(secret, safe=""), urllib.parse.quote_plus(secret))
+            encoded = (base64.b64encode(secret.encode()).decode(),
+                       base64.urlsafe_b64encode(secret.encode()).decode())
+            variants.update((secret, json.dumps(secret)[1:-1], *quoted, *encoded))
+            variants.update(re.sub(r"%[0-9A-F]{2}", lambda m: m[0].lower(), q) for q in quoted)
+            variants.update(value.rstrip("=") for value in encoded)
+
+    def redact(text):
+        for value in sorted(variants, key=len, reverse=True):
+            text = text.replace(value, "[REDACTED]")
+        text = re.sub(r"(?i)\bBearer\s+[^\s,;\"']+", "Bearer [REDACTED]", text)
+        text = re.sub(r"(?i)\b(authorization|api[_-]?key|token|password|secret)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+                      r"\1=[REDACTED]", text)
+        text = re.sub(r"[\x00-\x1f\x7f]", " ", text)
+        return text[:512]
+
+    evidence = {"explanations": [], "shape": [], "fields": []}
+    def walk(node, path="root", depth=0):
+        if depth > 4 or len(evidence["shape"]) >= 24:
+            return
+        if isinstance(node, dict):
+            unknown = 0
+            for key, value in list(node.items())[:32]:
+                # Sensitive values are never traversed or exposed, even if nested.
+                if re.search(r"authorization|api.?key|token|password|secret|credential", str(key), re.I):
+                    continue
+                if key in FIELDS:
+                    evidence["fields"].append(key)
+                if key in EXPLANATIONS and isinstance(value, str) and len(evidence["explanations"]) < 4:
+                    evidence["explanations"].append({"path": path + "." + key, "text": redact(value)})
+                elif key in CONTAINERS:
+                    kind = "object" if isinstance(value, dict) else "array" if isinstance(value, list) else "other"
+                    evidence["shape"].append({"path": path + "." + key, "type": kind})
+                    walk(value, path + "." + key, depth + 1)
+                else:
+                    unknown += 1
+            if unknown:
+                evidence["shape"].append({"path": path, "unknown_keys": unknown})
+        elif isinstance(node, list):
+            for value in node[:4]:
+                walk(value, path + "[]", depth + 1)
+    walk(parsed)
+    evidence["fields"] = sorted(set(evidence["fields"]))
+    return evidence
 
 
 def payload_bytes():
@@ -40,8 +123,8 @@ def payload_bytes():
     return data
 
 
-def classify(error):
-    """Never serialize exception strings, headers, bodies or arbitrary values."""
+def classify(error, secrets=None):
+    """No raw exception/headers/body; only bounded redacted explanations."""
     result = {"ok": False, "exception_type": "UnexpectedError",
               "category": "unclassified_error", "delivery": "unknown"}
     if isinstance(error, urllib.error.HTTPError):
@@ -51,13 +134,17 @@ def classify(error):
             result["category"] = "redirect_refused"
         try:
             parsed = json.loads(error.read(65536))
+            try:
+                result.update(safe_explanations(parsed, known_secret_values() if secrets is None else secrets))
+            except Exception:
+                result["message_redaction"] = "unavailable"
             if isinstance(parsed, dict):
                 code = parsed.get("code")
                 if isinstance(code, str) and code in CODES:
                     result["code"] = code
                 fields = parsed.get("fields", {})
                 if isinstance(fields, dict):
-                    result["fields"] = sorted(set(fields) & FIELDS)
+                    result["fields"] = sorted(set(result.get("fields", [])) | (set(fields) & FIELDS))
                 # Messages become fixed categories, never copied or persisted.
                 message = parsed.get("message")
                 if isinstance(message, str):
@@ -159,6 +246,37 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(result["http_status"], 400)
             self.assertNotIn("CANARY-SECRET", json.dumps(result))
 
+    def test_nested_explanations_encoded_secrets_and_unknown_shape(self):
+        secret = "CANARY-secret+/=\""
+        messages = ["Invalid field config.balancer.algorithm; expected round-robin " + secret,
+                    "Missing algorithm " + urllib.parse.quote(secret, safe=""),
+                    "Unsupported value " + base64.b64encode(secret.encode()).decode()]
+        body = {"code": "UNREVIEWED-CODE", "errors": [
+            {"message": messages[0], "password": {"message": secret},
+             "fields": {"config.balancer.algorithm": secret}},
+            {"detail": messages[1], "authorization": secret},
+            {"error": {"title": messages[2], "token": secret}}],
+            "unknown-container": {"message": secret}}
+        result = classify(urllib.error.HTTPError(URL, 400, "CANARY-SECRET", None,
+                          io.BytesIO(json.dumps(body).encode())), secrets={secret})
+        output = json.dumps(result)
+        self.assertNotIn("CANARY", output)
+        self.assertNotIn("UNREVIEWED-CODE", output)
+        self.assertNotIn("unknown-container", output)
+        self.assertIn("config.balancer.algorithm", result["fields"])
+        self.assertIn("expected round-robin", result["explanations"][0]["text"])
+        self.assertEqual(len(result["explanations"]), 3)
+        forms = [secret, json.dumps(secret)[1:-1], urllib.parse.quote(secret, safe=""),
+                 re.sub(r"%[0-9A-F]{2}", lambda m: m[0].lower(), urllib.parse.quote(secret, safe="")),
+                 base64.b64encode(secret.encode()).decode(),
+                 base64.urlsafe_b64encode(secret.encode()).decode().rstrip("=")]
+        redacted = safe_explanations({"message": "Invalid field; " + " ".join(forms)}, {secret})
+        for form in forms:
+            self.assertNotIn(form, json.dumps(redacted))
+        limited = safe_explanations({"message": "a" * 2000, "details": [{"message": "b"}] * 50}, set())
+        self.assertLessEqual(len(limited["explanations"]), 4)
+        self.assertLessEqual(len(limited["explanations"][0]["text"]), 512)
+
     def test_success_get_tls_and_no_redirect(self):
         class Response(io.BytesIO):
             status = 200
@@ -179,6 +297,13 @@ class DiagnosticTests(unittest.TestCase):
         self.assertNotIn("CANARY-SECRET", json.dumps(result))
         self.assertEqual(request_models("POST")["category"], "post_paused")
         self.assertEqual(hashlib.sha256(payload_bytes()).hexdigest(), BODY_HASH)
+
+    def test_string_error_explanation(self):
+        body = b'{"error":"missing targets.0.provider value CANARY-SECRET"}'
+        result = classify(urllib.error.HTTPError(URL, 400, "CANARY-SECRET", None,
+                          io.BytesIO(body)), secrets={"CANARY-SECRET"})
+        self.assertEqual(result["explanations"][0]["text"], "missing targets.0.provider value [REDACTED]")
+        self.assertNotIn("CANARY-SECRET", json.dumps(result))
 
 
 if __name__ == "__main__":

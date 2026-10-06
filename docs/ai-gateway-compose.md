@@ -167,21 +167,21 @@ S1/S2/S3 traffic remain stopped pending resolution.
 
 The diagnostic return did not meet the agreed acceptance condition: the author
 discarded `URLError.reason`, repeating the earlier loss of the 400 response
-classification. The Manager authored `scripts/konnect-diagnostic.py` as a
-bounded replacement. It retains only allowlisted field/code and fixed message
-categories or transport type/numeric code, closes error response streams, and
-never emits exception strings, headers, raw bodies or credentials. Run
-`python3 scripts/konnect-diagnostic.py --self-test` for four offline mock tests;
+classification. At `56bf308`, the Manager authored `scripts/konnect-diagnostic.py`
+as an initial replacement retaining only allowlisted field/code and fixed
+categories or transport type/numeric code, closing error response streams
+without emitting raw exception strings, headers or bodies. Run
+`python3 scripts/konnect-diagnostic.py --self-test` for offline mock tests;
 `--get-models` is read-only and requires an already supplied `KONNECT_TOKEN`.
 TLS certificate/hostname verification remains enabled and redirects are refused.
 There is no CLI POST mode; another POST requires owner reauthorization plus
-read-only duplicate avoidance. Four tests are mocked; separately, the Manager
+read-only duplicate avoidance. Its initial four tests were mocked; separately, the Manager
 ran one real read-only GET through this new client on 2026-10-06: HTTP 200 with
 only `insurance-normal`, with certificate/hostname verification enabled. This
 is not proof of Jev registration. A real GET 200 does not prove that the failed POST
 was pre-HTTP or that its cause was TLS. Provider traffic and expense evidence
-remain unavailable; no model/Jev/MCP/insurance calls or DP launch occurred.
-The classifier recognizes only reviewed top-level `code`, `message` and
+remain unavailable; no data-plane LLM/Jev/MCP/insurance calls or DP launch occurred.
+The initial classifier at `56bf308` recognized only top-level `code`, `message` and
 dictionary `fields` paths. Native error-envelope conformance has not been
 established; nested `errors`, array `details` or unknown paths may yield only
 `http_error`. It guarantees bounded sanitization, not a diagnosis of the 400.
@@ -191,6 +191,72 @@ reference does not establish the AI Gateway model-create error envelope.
 Before proposing another POST, verify the known native error shape read-only
 and extend only proven field paths if necessary; do not infer a payload fix
 from an unclassified response.
+
+### Single diagnostic attempt after renewed authorization
+
+On 2026-10-06, the Manager used the unchanged reviewed helper for exactly one
+new POST, between 08:58:30 and 08:58:32 JST. The request hash remained
+`3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791`.
+The retained result was `HTTPError`, status `400`, category `http_error`, delivery
+`http_response_received`, empty allowlisted `fields`, and no recognized `code`.
+HTTP response receipt is now proven; the specific rejection reason and absence
+of side effects are not. The last GET preceded this POST and listed only the
+normal model; no post-attempt GET was performed. No retry or downstream work
+followed. The helper read the body only into temporary local variables, closed
+the response and exited; no raw body or message remains recoverable. This is
+the third failure to obtain the agreed diagnostic cause. The Manager executed
+despite the known parser limitation, and the Coordinator accepted that limited
+precheck; the safe-output checks were not sufficient diagnostic acceptance.
+
+A narrow author comparison and independent review against the published
+[TypeSafe model example](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)
+found the following, without further Konnect HTTP requests:
+
+| Submitted element | Comparison with the published example |
+| --- | --- |
+| `type`, `capabilities`, `formats`, target model/config and `/jev` route | Same native shape: model, decisions, TypeSafe, jev-latest. |
+| Provider reference | Existing provider name replaces the example name; [AI Model docs](https://developer.konghq.com/ai-gateway/entities/ai-model/) specify name references. |
+| `enabled`, empty `policies`, `access.auth_strategies`, logging and balancer | Added to the minimal example; omission does not establish rejection. |
+| Provider authentication | Bearer upstream key belongs to the provider; inbound key-auth remains a separate model access control. No key is in this model body. |
+
+The [load-balancing reference](https://developer.konghq.com/ai-gateway/load-balancing/)
+documents retries and failover controls, but does not establish that a missing
+algorithm caused this 400. Dropping access, payload-logging suppression or
+`retries: 0` / `failover_criteria: []` as a guess could weaken authentication,
+privacy or the call-budget boundary. No such change is proposed.
+
+The next method is a diagnostic acceptance fix, not another blind POST. The
+Coordinator's fixed-classification-only requirement overconstrained cause
+recovery; the revised requirement preserves minimal redacted explanations.
+The helper now traverses only known error containers, retaining at most four
+`message`/`title`/`detail`/string `error` explanations of 512 characters each and safe shape
+metadata. Raw JSON (maximum 64 KiB) remains temporary memory only. Known secret
+values from the environment and the two ignored, non-symlink, `0600` local
+handoff/overlay files are masked exactly, including URL/JSON/base64 forms.
+Sensitive-key values are never traversed; Bearer and labelled credential text
+are masked. Unknown structures/codes retain shape rather than arbitrary values.
+Six offline tests cover nested/string error explanations, secret canaries, unknown code,
+size limits, transport classification and TLS/redirect boundaries. No API call
+was made with this revised version.
+
+This is not a proof of the native envelope or a guarantee against an unknown
+unlabelled secret inside a recognized explanation. Review redacted evidence
+locally before adding it to Git or a comment. Resolve the native schema/error
+format read-only where available and select any further diagnostic action only
+after a new owner decision. Registration, MCP creation, DP startup and all
+model/Jev/insurance traffic remain stopped; retry/auth/privacy settings remain
+unchanged.
+
+Context7 was checked using public product queries only. `Jev` alone yielded
+third-party clients; `TypeSafe AI Jev` resolved the official documentation
+library `/websites/typesafe_ai` and `/typesafe-ai/typesafe-sdk-python`. Querying
+the documentation returned [the official API](https://docs.typesafe.ai/api):
+native `/v1/systemone`, upstream Bearer authentication, state/questions/answers
+and `jev-latest`. These are current unversioned docs, not a verified version
+pin; they help with Jev API contracts without its source code but do not define
+the Konnect model-registration error envelope. Worker A checked the published
+contracts, the Manager made the Context7 calls, and Worker B independently
+reviewed the structural comparison and stop boundary.
 
 The three inbound key values are kept only in ignored `.env.live.local`
 (mode `0600`); the new local DP private key is in ignored
