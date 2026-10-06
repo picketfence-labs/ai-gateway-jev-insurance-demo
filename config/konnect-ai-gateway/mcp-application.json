@@ -15,7 +15,6 @@
       "description": "Read one synthetic application detail for the current insurance case.",
       "method": "GET",
       "path": "/mcp/application/applications/{application_id}",
-      "annotations": { "title": "Get application detail", "readOnlyHint": true, "destructiveHint": false },
       "parameters": [{ "name": "application_id", "in": "path", "required": true, "schema": { "type": "string" } }]
     }
   ]

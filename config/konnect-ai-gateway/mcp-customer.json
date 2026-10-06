@@ -15,7 +15,6 @@
       "description": "Read one synthetic customer detail for the current insurance case.",
       "method": "GET",
       "path": "/mcp/customer/customers/{customer_id}",
-      "annotations": { "title": "Get customer detail", "readOnlyHint": true, "destructiveHint": false },
       "parameters": [{ "name": "customer_id", "in": "path", "required": true, "schema": { "type": "string" } }]
     }
   ]

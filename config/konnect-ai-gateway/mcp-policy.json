@@ -15,7 +15,6 @@
       "description": "Read one synthetic policy detail for the current insurance case.",
       "method": "GET",
       "path": "/mcp/policy/policies/{policy_id}",
-      "annotations": { "title": "Get policy detail", "readOnlyHint": true, "destructiveHint": false },
       "parameters": [{ "name": "policy_id", "in": "path", "required": true, "schema": { "type": "string" } }]
     }
   ]

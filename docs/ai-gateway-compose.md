@@ -42,12 +42,10 @@ Do not add certs, keys, provider credentials, or inbound API keys to Git.
   keys share one strategy and do not provide per-route authorization isolation.
 - Owner-approved request budgets/timeouts. The normal AI SDK calls set
   `maxRetries: 0`, and Jev host fetch has one attempt, but these do not disable
-  AI Gateway data-plane retries. The normal model create returned HTTP 201 with
-  `config.balancer.retries: 0` and `failover_criteria: []`; the Jev create
-  failed with HTTP 400, so those values were not accepted for Jev. Runtime retry
-  and failover behavior for both models remains untested. MCP invocation counts
-  likewise do not prove a single upstream attempt; confirm its DP retry behavior
-  before any traffic.
+  AI Gateway data-plane retries. Both model configurations have since read back
+  with `config.balancer.retries: 0` and `failover_criteria: []`; this is config
+  evidence, not proof of runtime retry behavior or a single upstream attempt.
+  MCP invocation counts likewise do not prove a single upstream attempt.
 The static scaffold itself does not prove DP registration, Konnect connectivity,
 model readiness, or successful upstream traffic. See the latest authorized
 checkpoint below for resources created outside the scaffold. Kong's `kong health`
@@ -88,8 +86,9 @@ native `decisions` / string-state request and is not a Chat Completions route.
 The earlier proposal below required separate live approval and a known-price
 USD cap. On 2026-10-06 the owner explicitly authorized the dedicated US AI
 Gateway setup and a bounded S1 run, accepting the expected Jev charge; no
-monetary cap or cost guarantee was invented. The current attempt is stopped at
-a Jev model-create HTTP 400; no DP start or application traffic has occurred.
+monetary cap or cost guarantee was invented. At the 07:34 checkpoint the
+attempt was stopped at a Jev model-create HTTP 400; later progress is recorded
+in the latest checkpoint at the end of this document.
 
 0. **Static only:** zero live requests. Parse JSON and run offline tests/config
    checks only.
@@ -112,11 +111,10 @@ a Jev model-create HTTP 400; no DP start or application traffic has occurred.
    the turn. Any S2/S3 turn remains conditional on S1 success and is outside
    this checkpoint.
 
-The owner authorization does not remove the current HTTP 400 stop. No
-diagnostic retry, DP start, or application request is authorized until the
-configuration failure is resolved with owner direction.
+At the time of this checkpoint, owner authorization did not remove the HTTP 400
+stop. The later bounded diagnostic and configuration repair are recorded below.
 
-## Latest live checkpoint — 2026-10-06
+## Earlier live checkpoint — 2026-10-06 (07:34 JST snapshot)
 
 At the 07:34 JST checkpoint (about 37 minutes into the authorized attempt), the
 dedicated US hybrid AI Gateway existed and its public DP certificate was
@@ -355,9 +353,9 @@ tool naming prefixes path arguments with `path_`; the host normalizes only the
 exact expected ID name at the authorization boundary and forwards the original
 SDK tool args unchanged. Extra, duplicate, foreign, empty, or non-string IDs
 are rejected before a business request. The REST service containers alone do
-not provide MCP. These mappings are design candidates only: no Konnect MCP
-Server entity, transformation, route, auth policy, or MCP request has been
-created or tested.
+not provide MCP. These mappings were candidates before the live checkpoint
+below; the five entities/routes have now been created. The later checkpoint
+records the limited request evidence and remaining acceptance gaps.
 
 Reference behavior: [AI Gateway architecture](https://developer.konghq.com/ai-gateway/architecture/),
 [configuration reference](https://developer.konghq.com/ai-gateway/configuration/),
@@ -373,7 +371,8 @@ at source revision `ab96eea303e27fe02d98344a31bc7633753da77e`. Its existing
 layout; this repo's wrapper keeps the selected API code and matching seed in
 each image. The Dockerfile-specific ignore file is an allowlist so unrelated
 source files, `.git`, local environments, and agent instructions are not sent
-in the build context. No image build was run.
+in the build context. No image build had run at the original static-review
+checkpoint; see the later runtime checkpoint below.
 
 ## Safe static check
 
@@ -391,4 +390,138 @@ The existing app secret-scan result does not establish complete coverage of
 Compose, Dockerfile, ignore-file, or environment-template formats; those files
 still require independent manual path/placeholder/secret review.
 
-The existing `.github/workflows/ci.yml` remains the app's offline merge harness: it runs on push and pull request with Node.js 22, live gates disabled and telemetry off, then install, lint, typecheck, 30 mocked tests, secret-scan, and production build. Compose `config --quiet` was checked locally by A/B/Manager only and is not a CI job; no Compose image build or start was performed. All services share one bridge, so web and DP can reach the five REST APIs over Compose DNS even though those API ports are not host-published; network-level isolation is not provided.
+The existing `.github/workflows/ci.yml` remains the app's offline merge harness: it runs on push and pull request with Node.js 22, live gates disabled and telemetry off, then install, lint, typecheck, mocked tests, secret-scan, and production build. Compose `config --quiet` was checked locally by A/B/Manager only and is not a CI job. No Compose image build or start had occurred at the original static checkpoint; see the current live checkpoint below. All services share one bridge, so web and DP can reach the five REST APIs over Compose DNS even though those API ports are not host-published; network-level isolation is not provided.
+
+## Live checkpoint — 2026-10-06, after 10:02 JST
+
+This update supersedes earlier “Jev model absent / MCP not created / no runtime”
+statements above; those describe earlier checkpoints. The Jev model's first
+create attempt returned HTTP 400 with the redacted field path
+`config.balancer` and discriminator `algorithm` missing. The bounded repair added
+`algorithm: round-robin`, retaining `retries: 0` and `failover_criteria: []`;
+the single repaired create returned HTTP 201 (09:34:07–08 JST), with Jev model ID
+`fffee564-6af2-4a69-a172-fe6403923ea3`. The repaired create payload SHA-256 was
+`4cc9f6efa9a95c7301e7a4a8e9e954ee1d19f3c5a10f21e12057df744bada459`.
+Read-only model metadata confirmed
+the Jev model enabled with retries `0`, failover `[]`, and payload logging off.
+This proves accepted configuration, not end-to-end Jev execution.
+
+The five MCP Servers were each created with HTTP 201 after two narrow payload
+repairs: explicitly discriminate the Consumer ACL (`acl_attribute_type:
+consumer`, allowing the existing `insurance-demo-local-app`) and omit optional
+tool annotation objects rejected by the AI Gateway 2.2 schema. Authentication
+was not disabled; each listener continues to use the fixed key-auth strategy.
+Their identifiers are:
+
+| MCP entity | ID |
+| --- | --- |
+| product | `16874677-6056-4016-bd6b-534277690dfc` |
+| customer | `2809d067-10a0-40d7-8e2f-e99c0489aaed` |
+| application | `0dc09a19-273f-471b-8624-625ee11ca850` |
+| policy | `a23fc5b0-2fed-4049-ac70-6bcec1f5e012` |
+| claim | `e477ffc1-1ef4-477e-97f2-cdd92f2d6042` |
+
+Six Docker images built successfully. Compose then started the six non-web
+services with `up -d --no-build`; the web container was subsequently started.
+The DP reports `kong health` success (process health only). A native Konnect
+node read reported the dedicated DP node ID
+`739088a9-1831-4f51-8df2-5b2c8a353542`, hostname
+`3e181700a0b2`, and version `2.2.0`; status/hash projection fields were not
+confirmed. An unauthenticated customer MCP request returned HTTP 401, evidence
+of route/auth handling rather than a successful tool call. The ignored local
+Compose overlay is mode `0600`; the tracked live gates remain off.
+
+The Japanese UI was ready, and the first authorized S1 turn was submitted at
+10:02:04 JST. It failed: the UI returned HTTP 502 after the second normal
+Gateway request returned HTTP 400. Subsequent bounded S1 turns and the final
+stop are recorded below; no automatic retry or S2/S3 turn was run.
+
+Sanitized request evidence records one normal POST HTTP 200, then five MCP
+`tools/list` calls reaching authenticated listeners, followed by one claim
+`tools/call` and the single business request `GET /claims/CLM-000015` returning
+HTTP 200. Product, customer, application, and policy business GETs were not
+observed; the Jev route was not observed. The subsequent normal POST returned
+HTTP 400 and the application route returned its generic 502. The exact provider
+error body was not retained, so its cause remains unknown. These log events do
+not substitute for the app's final usage/receipt summary or prove downstream
+completion, decision, or a charge amount.
+
+### Narrow compatibility finding (cause not confirmed)
+
+The insurance claim endpoint returns the claim record itself (`main.py` returns
+the result of `store.get`, with no outer `data` envelope); the MCP adapter
+accepts MCP `structuredContent` or parses a JSON text block before the existing
+projection checks the exact `claim_id` and allowlisted fields. The HTTP 200
+claim call followed by a second model request is consistent with this path,
+but the exact MCP tool-result envelope was not retained. This does not establish
+that an MCP shape caused the later HTTP 400.
+
+The active normal target at the first S1 attempt was `gemini-3.5-flash`. Google documents Gemini 3
+function-call thought signatures as mandatory in the next request; its Gemini
+2.5 documentation says function-call signatures, when present, are optional.
+The installed `@ai-sdk/openai@4.0.60` parser maps returned OpenAI tool calls to
+tool name/arguments and the serializer reconstructs assistant tool-call fields
+and tool output text; it does not round-trip the Google-specific thought
+signature metadata. That is a concrete compatibility gap and a plausible
+explanation for a post-tool-call 400, **not a confirmed cause**, because the
+exact 400 body was not retained. Kong's Gemini provider documentation supports
+the `generate` capability on the OpenAI-compatible `/chat/completions` path,
+but does not prove this model's multi-step thought-signature/tool round-trip.
+
+At the time of this compatibility assessment, `gemini-2.5-flash` was only a
+fallback candidate in read-only metadata. Its subsequent owner-authorized model
+configuration update and S1 result are recorded in the final checkpoint below.
+
+References: [Gemini 3.5 Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash),
+[Gemini thought signatures](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures),
+[Gemini 2.5 Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash),
+and [Kong Gemini provider](https://developer.konghq.com/ai-gateway/ai-providers/gemini/).
+
+## Final bounded S1 checkpoint — 2026-10-06, stopped 10:31:57 JST
+
+The normal AI Model was updated once via the native API (HTTP 200) to use only
+`gemini-2.5-flash`; readback (HTTP 200) matched the reviewed payload on all
+whitelisted fields. Compared with the pre-update model, only the intended target
+name changed. The payload SHA-256 was
+`3da25c8c6248901682c39b1a591d22e9428679d7a671f3e0249f9504e75cb812`. Retries
+`0`, failover `[]`, and payload logging off were retained. This is accepted
+configuration, not successful generation or tool-round-trip proof.
+
+After the earlier three S1 turns (each logged as 2 normal POSTs, 1 MCP
+`tools/call`, 0 Jev requests), the final turn had a pre-send `date` record of 10:31:14 JST; the web
+process stop had a `date` record of 10:31:57 JST. This 43-second observation
+interval is not a measured request duration. Its UI
+returned HTTP 502 with no card. The logs recorded 3 normal POSTs (HTTP 200), 3
+MCP `tools/call` requests, and 0 Jev route requests. The three business GETs
+were `GET /claims/CLM-000015`, `GET /customers/CUS-000011`, and
+`GET /policies/POL-000042`, each HTTP 200; product and application GETs were not
+observed. No S1 completed through Jev. The registered Jev model, DP process
+health, and Konnect node registration are separate configuration/process
+evidence and do not establish Jev inference.
+
+Across these four bounded S1 attempts, observed logs total 9 normal POSTs, 6
+business MCP tool calls/GETs, and 0 Jev route requests. MCP `tools/list`
+discovery is separate and excluded from that business-call count. These are
+observed log totals, not a complete wire/provider-usage ledger: the final
+host-attempt reservation/phase was not preserved, timeout/abort details were
+not retained, and provider billing/usage was not verified. Do not claim zero
+charges; actual cost remains unknown. Screenshot: [final S1 failure](evidence/live-s1-required-tools-failure.png).
+It was captured once as a full-page browser screenshot after the single final
+S1. Repeated tiles may reflect full-page capture tiling/stitching and are not
+evidence of additional turns.
+
+The app change reviewed by B makes tool choice `required` while any S1-required
+fact kind is missing, then `none` only after the ledger is complete and related;
+inconsistent data fails closed. B reviewed this delta PASS. Offline checks passed:
+39 tests, typecheck, lint, diff check, secret scan (53 files, 0 findings), and
+the final Docker image build. The last S1 still failed, so no more attempts are
+authorized by this checkpoint.
+
+The recovery interval from the 09:29 kickoff to the 10:31:57 stop was about 63
+minutes, exceeding the earlier 15–25 minute estimate. The main delays were
+native schema repair and OpenAI-compatible Gemini tool/signature interoperability,
+followed by missing required ledger facts. The app's generic catch returned
+HTTP 502 without preserving a safe failure phase or final card; this is a
+diagnostic limitation. Since ordinary missing-fact ineligibility returns HTTP
+200, the 502 indicates an exception in acquisition/validation before Jev, but
+the exact throw point and cause were not preserved.

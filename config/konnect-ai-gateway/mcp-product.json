@@ -15,7 +15,6 @@
       "description": "Read one synthetic product detail for the current insurance case.",
       "method": "GET",
       "path": "/mcp/product/products/{product_id}",
-      "annotations": { "title": "Get product detail", "readOnlyHint": true, "destructiveHint": false },
       "parameters": [{ "name": "product_id", "in": "path", "required": true, "schema": { "type": "string" } }]
     }
   ]

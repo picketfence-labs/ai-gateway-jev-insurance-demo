@@ -19,6 +19,10 @@
   "config": {
     "route": { "paths": ["/jev"] },
     "logging": { "payloads": false },
-    "balancer": { "retries": 0, "failover_criteria": [] }
+    "balancer": {
+      "algorithm": "round-robin",
+      "retries": 0,
+      "failover_criteria": []
+    }
   }
 }

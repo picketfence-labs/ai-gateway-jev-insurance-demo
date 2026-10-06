@@ -23,7 +23,7 @@ import urllib.request
 import urllib.parse
 
 URL = "https://us.api.konghq.com/v1/ai-gateways/3754a93c-fba3-4b95-adbb-b429816b431c/models"
-BODY_HASH = "3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791"
+BODY_HASH = "4cc9f6efa9a95c7301e7a4a8e9e954ee1d19f3c5a10f21e12057df744bada459"
 FIELDS = {"name", "type", "capabilities", "capabilities.0", "formats.0.type",
           "targets.0.provider", "targets.0.config.type", "access.auth_strategies.0",
           "config.balancer.algorithm", "config.balancer.retries",

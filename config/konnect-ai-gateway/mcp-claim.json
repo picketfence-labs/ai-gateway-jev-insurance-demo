@@ -15,7 +15,6 @@
       "description": "Read one synthetic claim detail for the current insurance case.",
       "method": "GET",
       "path": "/mcp/claim/claims/{claim_id}",
-      "annotations": { "title": "Get claim detail", "readOnlyHint": true, "destructiveHint": false },
       "parameters": [{ "name": "claim_id", "in": "path", "required": true, "schema": { "type": "string" } }]
     }
   ]

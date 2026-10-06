@@ -10,7 +10,7 @@ import { isRequestId, LiveRequestRegistry, ProcessUsageBudget, TurnLimits, valid
 import { dispatchLivePayload } from "@/app/api/live/route";
 import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
-import { runLiveTurn } from "@/lib/gateway-agent";
+import { runLiveTurn, recordGatewayFailure, acquisitionRequirements, acquisitionToolChoice } from "@/lib/gateway-agent";
 import { createGatewayApiKeyFetch } from "@/lib/gateway-auth";
 import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
@@ -18,6 +18,79 @@ import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selec
 import { caseLabels, choiceLabel, displayFactValue, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
 
 vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn() }));
+
+it("tells the LLM each case's required fact kinds without supplying undiscovered IDs or executing hidden GETs", () => {
+  const s1 = acquisitionRequirements("S1");
+  const s2 = acquisitionRequirements("S2");
+  const s3 = acquisitionRequirements("S3");
+  for (const prompt of [s1, s3]) for (const kind of ["customer", "product", "claim", "policy"]) expect(prompt).toContain(kind);
+  for (const kind of ["customer", "product", "application"]) expect(s2).toContain(kind);
+  expect(s2).not.toContain("claim");
+  for (const prompt of [s1, s2, s3]) {
+    expect(prompt).toContain("現在のターンで取得したツール結果の参照からだけ");
+    expect(prompt).toContain("IDや不足事実を推測せず");
+    expect(prompt).toContain("隠れたGETで不足を補うことはありません");
+    expect(prompt).not.toMatch(/(?:CUS|PRD|POL|CLM|APP)-\d+/);
+  }
+});
+
+it("requires tools until the ledger is complete and related, then forbids further acquisition calls", () => {
+  expect(acquisitionToolChoice("S1", new TurnLedger("S1"))).toBe("required");
+  expect(acquisitionToolChoice("S1", completeS1())).toBe("none");
+});
+
+describe("bounded Gateway failure evidence", () => {
+  it("labels a native Jev failure without changing its response or synthesizing a decision", async () => {
+    const response = new Response('{"error":"Native question format invalid"}', { status: 400 });
+    const evidence: unknown[] = [];
+    await recordGatewayFailure(response, "jev", {}, (value) => evidence.push(value));
+    expect(evidence).toEqual([{ phase: "jev", httpStatus: 400, explanations: ["Native question format invalid"] }]);
+    expect(response.bodyUsed).toBe(false);
+    expect(response.ok).toBe(false);
+  });
+  it("retains a useful nested explanation while masking known and labelled credentials", async () => {
+    const canary = "gateway-canary/+secret";
+    const body = JSON.stringify({ error: { api_key: canary, details: [{ message: `Missing thought_signature. ${canary} ${encodeURIComponent(canary)} ${Buffer.from(canary).toString("base64")} Bearer hidden-token token=unknown-canary {"api_key":"unknown-json-canary"}` }] } });
+    const response = new Response(body, { status: 400 });
+    const evidence: unknown[] = [];
+    await recordGatewayFailure(response, "agent", { MCP_API_KEY: canary }, (value) => evidence.push(value));
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).toContain("Missing thought_signature");
+    for (const value of [canary, encodeURIComponent(canary), Buffer.from(canary).toString("base64"), "hidden-token", "unknown-canary", "unknown-json-canary"]) expect(serialized).not.toContain(value);
+    expect(serialized).not.toContain("api_key");
+    expect(response.bodyUsed).toBe(false);
+    expect(await response.text()).toBe(body);
+  });
+  it("handles string error, unknown shape and malformed JSON without printing raw payload", async () => {
+    const evidence: unknown[] = [];
+    await recordGatewayFailure(new Response(JSON.stringify({ error: "Unsupported format" }), { status: 400 }), "supplement", {}, (value) => evidence.push(value));
+    await recordGatewayFailure(new Response(JSON.stringify({ unrecognized: "hidden-value" }), { status: 400 }), "agent", {}, (value) => evidence.push(value));
+    await recordGatewayFailure(new Response("raw-non-json-hidden"), "agent", {}, (value) => evidence.push(value));
+    // Only non-2xx responses are observed.
+    expect(evidence).toHaveLength(2);
+    expect(JSON.stringify(evidence)).toContain("Unsupported format");
+    expect(JSON.stringify(evidence)).toContain("unrecognized_error_shape");
+    expect(JSON.stringify(evidence)).not.toContain("hidden-value");
+    const malformed: unknown[] = [];
+    await recordGatewayFailure(new Response("raw-non-json-hidden", { status: 500 }), "agent", {}, (value) => malformed.push(value));
+    expect(JSON.stringify(malformed)).toContain("safe_error_diagnostic_unavailable");
+    expect(JSON.stringify(malformed)).not.toContain("raw-non-json-hidden");
+  });
+  it("caps bytes, explanations and report failures without consuming original responses", async () => {
+    const evidence: unknown[] = [];
+    const large = new Response("x".repeat(4097), { status: 400 });
+    await recordGatewayFailure(large, "agent", {}, (value) => evidence.push(value));
+    expect(JSON.stringify(evidence)).toContain("error_body_size_limit");
+    const bounded = new Response(JSON.stringify({ errors: Array.from({ length: 5 }, () => ({ message: "x".repeat(700) })) }), { status: 400 });
+    await recordGatewayFailure(bounded, "agent", {}, (value) => evidence.push(value));
+    const row = evidence[1] as { explanations: string[] };
+    expect(row.explanations).toHaveLength(2);
+    expect(row.explanations.every((text) => text.length <= 512)).toBe(true);
+    const preserved = new Response('{"message":"Invalid request"}', { status: 400 });
+    await recordGatewayFailure(preserved, "agent", {}, () => { throw new Error("reporter failure"); });
+    expect(preserved.bodyUsed).toBe(false);
+  });
+});
 
 describe("inbound AI Gateway API-key transport", () => {
   it("replaces Authorization with the fixed apikey header for string, URL, and Request inputs", async () => {
