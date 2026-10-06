@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMCPClient } from "@ai-sdk/mcp";
-import { TurnLedger, createComparisonLedger, executeScopedMcpCall, operationIds, readSnapshotOnly } from "@/lib/ledger";
+import { TurnLedger, executeScopedMcpCall, operationIds } from "@/lib/ledger";
 import { projectApiRecord } from "@/lib/projection";
 import { buildNativeRequest, AttemptRegistry, executeAtMostOnce, parseNativeDecision, questions } from "@/lib/jev";
 import { INTAKE_RUBRIC } from "@/lib/rubric";
@@ -12,7 +12,6 @@ import { createOfflinePreview } from "@/lib/offline-demo";
 import { submitDemoRequest } from "@/lib/demo-submit";
 import { runLiveTurn, recordGatewayFailure, acquisitionRequirements, acquisitionToolChoice, nextMissingFact } from "@/lib/gateway-agent";
 import { createGatewayApiKeyFetch } from "@/lib/gateway-auth";
-import { trustedSnapshots, TrustedSnapshotStore } from "@/lib/snapshot-store";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
 import { caseLabels, choiceLabel, displayFactValue, displayLiveMode, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
@@ -62,6 +61,13 @@ it("does not fall back to static expected IDs when a current-turn relationship i
   const incompleteClaim = { ...scenarios.S1.facts.claim!, customer_id: null as unknown as string };
   ledger.record("claim", incompleteClaim.claim_id, incompleteClaim);
   expect(() => nextMissingFact("S1", ledger)).toThrow(/no unique current-turn reference/);
+});
+
+it("keeps identical S4 and S5 inquiries tied to different current-case seed facts", () => {
+  expect(scenarios.S4.inquiry).toBe(scenarios.S5.inquiry);
+  expect(scenarios.S4.facts.claim?.status).toBe("審査中");
+  expect(scenarios.S5.facts.claim?.status).toBe("支払済");
+  expect(scenarios.S4.rootId).not.toBe(scenarios.S5.rootId);
 });
 
 describe("bounded Gateway failure evidence", () => {
@@ -209,6 +215,28 @@ describe("privacy and projections", () => {
 });
 
 describe("scope and host ledger", () => {
+  it("allows an S9 policy only after discovery and excludes optional policy state from application Jev facts", async () => {
+    const ledger = new TurnLedger("S9");
+    const scenario = scenarios.S9;
+    const policy = { policy_id: "POL-000180", customer_id: "CUS-000016", product_id: "PRD-004", status: "失効" };
+    const sendPolicy = vi.fn(async () => policy);
+    await expect(executeScopedMcpCall(ledger, operationIds.policy, { policy_id: policy.policy_id }, sendPolicy)).rejects.toThrow(/not discovered/);
+    expect(sendPolicy).not.toHaveBeenCalled();
+    await executeScopedMcpCall(ledger, operationIds.application, { application_id: scenario.rootId }, async () => scenario.facts.application);
+    await executeScopedMcpCall(ledger, operationIds.policy, { policy_id: policy.policy_id }, sendPolicy);
+    await executeScopedMcpCall(ledger, operationIds.customer, { customer_id: scenario.facts.customer!.customer_id }, async () => scenario.facts.customer);
+    await executeScopedMcpCall(ledger, operationIds.product, { product_id: scenario.facts.product!.product_id }, async () => scenario.facts.product);
+    ledger.assertCompleteAndRelated();
+    expect(sendPolicy).toHaveBeenCalledTimes(1);
+    expect(ledger.uniqueSuccessfulGetCount).toBe(4);
+    expect(ledger.facts.policy).toEqual(policy);
+    expect(ledger.toJevFacts()).toEqual({
+      application: { status: "承認", resulting_policy_reference_present: true },
+      product: { product_name: scenario.facts.product!.product_name, category: scenario.facts.product!.category, coverage_summary: scenario.facts.product!.coverage_summary, status: scenario.facts.product!.status },
+    });
+    expect(ledger.toJevFacts()).not.toHaveProperty("policy");
+  });
+
   it("rejects unrelated roots and non-detail/list/write operations before network", async () => {
     const ledger = new TurnLedger("S1");
     expect(() => ledger.authorize("customer", "CUS-999999")).toThrow(/not discovered/);
@@ -290,24 +318,19 @@ describe("scope and host ledger", () => {
     expect(() => projectApiRecord("claim", { ...raw, claim_amount_paid: "0" }, "CLM-000015")).toThrow(/claim_amount_paid/);
   });
 
-  it("does not fall back to a live GET when comparison snapshot is missing", () => {
-    const ledger = createComparisonLedger("S1", { claim: scenarios.S1.facts.claim, policy: scenarios.S1.facts.policy });
-    readSnapshotOnly(ledger, "claim", "CLM-000015");
-    readSnapshotOnly(ledger, "policy", "POL-000042");
-    expect(() => readSnapshotOnly(ledger, "product", "PRD-002")).toThrow(/no live fallback/);
-    expect(ledger.uniqueSuccessfulGetCount).toBe(2);
-    expect(ledger.sourceLabel).toBe("parent_snapshot");
-  });
-
-  it("re-projects trusted comparison snapshots and strips added PII before reuse", () => {
-    const store = new TrustedSnapshotStore();
-    const candidate = { ...scenarios.S1.facts, customer: { ...scenarios.S1.facts.customer!, name: "CANARY-SNAPSHOT-NAME", email: "CANARY-SNAPSHOT-EMAIL" } };
-    const { snapshotId, factsHash } = store.save("S1", candidate);
-    const found = store.read(snapshotId, "S1");
-    expect(found?.factsHash).toBe(factsHash);
-    expect(JSON.stringify(found?.facts)).not.toContain("CANARY");
-    expect(store.read(snapshotId, "S2")).toBeNull();
-    expect(() => store.save("S1", { ...candidate, claim: { ...scenarios.S1.facts.claim!, customer_id: "CUS-999999" } })).toThrow(/outside the selected/);
+  it("starts every new turn with an empty ledger and acquires the same seed facts afresh", async () => {
+    const previous = completeS1();
+    const current = new TurnLedger("S1");
+    expect(previous.uniqueSuccessfulGetCount).toBe(4);
+    expect(current.facts).toEqual({});
+    expect(current.uniqueSuccessfulGetCount).toBe(0);
+    expect(current.sourceLabel).toBe("live_api");
+    const send = vi.fn(async () => scenarios.S1.facts.claim);
+    const result = await executeScopedMcpCall(current, operationIds.claim, { path_claim_id: scenarios.S1.rootId }, send);
+    expect(result).toMatchObject({ source: "live_api", data: scenarios.S1.facts.claim });
+    expect(send).toHaveBeenCalledOnce();
+    expect(current.uniqueSuccessfulGetCount).toBe(1);
+    expect(previous.uniqueSuccessfulGetCount).toBe(4);
   });
 });
 
@@ -322,12 +345,20 @@ describe("native Jev contract and one-attempt semantics", () => {
     expect(body.questions.desk.criteria).toEqual(INTAKE_RUBRIC.desk.criteria);
     expect(body.questions.priority.criteria).toEqual(INTAKE_RUBRIC.priority.criteria);
     expect(body.questions.next_check.criteria).toEqual(INTAKE_RUBRIC.nextCheck.criteria);
-    expect(questions.priority.criteria).toEqual(["0: ordinary status or procedure inquiry", "1: additional clarification or reported mismatch", "2: explicit wish for early human contact"]);
+    expect(questions.priority.criteria).toEqual(INTAKE_RUBRIC.priority.criteria);
+    expect(INTAKE_RUBRIC.version).toBe("insurance-intake-v2");
+    expect(INTAKE_RUBRIC.priority.instructions).toMatch(/not urgency or a wish for early contact/);
+    expect(INTAKE_RUBRIC.priority.instructions).toMatch(/Requested and paid amounts may differ legitimately/);
+    expect(INTAKE_RUBRIC.priority.instructions).toMatch(/Null paid amount means unrecorded, not zero/);
+    expect(INTAKE_RUBRIC.priority.instructions).toMatch(/Paid status and reported bank receipt are different fields/);
+    expect(INTAKE_RUBRIC.priority.criteria[2]).toMatch(/explicitly disputes the same projected field or value/);
+    expect(INTAKE_RUBRIC.priority.criteria[2]).not.toMatch(/wish for early human contact/);
+    expect(JSON.parse(body.state)).toMatchObject({ criteria_version: "insurance-intake-v2", user_inquiry: "status please" });
   });
 
   it("localizes Jev and fixture values for display without changing their evidence or wire contract", () => {
     const actual = structuredClone(nativeResponse);
-    const actualSummary = summarizeDecision(actual);
+    const actualSummary = summarizeDecision(actual, "insurance-intake-v1");
     expect(actualSummary?.kind).toBe("actual");
     expect(actualSummary?.fields.map((field) => field.value)).toEqual([
       "保険金請求の状況（claim_progress）",
@@ -336,21 +367,38 @@ describe("native Jev contract and one-attempt semantics", () => {
     ]);
     expect(actualSummary?.fields[0].probabilities.find((row) => row.key === "claim_progress")?.label).toBe("保険金請求の状況（claim_progress）");
     expect(actualSummary?.fields[0].confidence).toBe(0.98);
+    expect(actualSummary?.fields[1].label).toBe("案内上の優先度（旧v1）");
     expect(actualSummary?.fields[1].legend[0].label).toBe("通常の状況確認・手続きに関する問い合わせ");
     expect(actual).toEqual(nativeResponse);
 
+    const v2Response = structuredClone(nativeResponse);
+    v2Response.answers.priority.legend = {
+      "0": "0: exposed records support a narrow explanation of the queried field and no same-field disagreement is reported",
+      "1": "1: a detail is not projected or a limited confirmation is needed, without an explicit dispute of the same recorded field or value",
+      "2": "2: the user explicitly disputes the same projected field or value and a human should compare that unresolved reported difference; not a verified error or urgency",
+    };
+    const v2Summary = summarizeDecision(v2Response, "insurance-intake-v2");
+    expect(v2Summary?.fields[1].label).toBe("追加確認度");
+    expect(v2Summary?.fields[1].value).toBe("0.25 / 2（連続スコア。段階ラベルは付与していません）");
+    expect(v2Summary?.fields[1].legend[2].label).toBe("同じ記録項目への異議が申告され、人による照合が必要");
+
+    const wrongV2Legend = structuredClone(v2Response);
+    wrongV2Legend.answers.priority.legend = structuredClone(nativeResponse.answers.priority.legend);
+    const wrongV2Summary = summarizeDecision(wrongV2Legend, "insurance-intake-v2");
+    expect(wrongV2Summary?.fields[1].legend[0].label).toBe("未対応の値（原値: ordinary）");
+
     const fixture = structuredClone(scenarios.S1.fixtureDecision);
-    const fixtureSummary = summarizeDecision(fixture);
+    const fixtureSummary = summarizeDecision(fixture, "insurance-intake-v2");
     expect(fixtureSummary?.kind).toBe("fixture");
     expect(fixtureSummary?.fields.map((field) => field.value)).toEqual([
       "保険金請求の状況（claim_progress）",
-      "0 / 2 · 通常の状況確認・手続きに関する問い合わせ",
-      "保険金請求の状況を確認（claim_progress）",
+      "1 / 2 · 投影されない詳細または限定的な確認が必要",
+      "請求に関する追加情報を確認（claim_additional_information）",
     ]);
     expect(fixture).toEqual(scenarios.S1.fixtureDecision);
-    for (const caseId of ["S1", "S2", "S3"] as const) {
+    for (const caseId of Object.keys(scenarios) as Array<keyof typeof scenarios>) {
       const raw = structuredClone(scenarios[caseId].fixtureDecision);
-      const summary = summarizeDecision(raw);
+      const summary = summarizeDecision(raw, "insurance-intake-v2");
       expect(summary?.fields[0].value).toBe(choiceLabel("desk", raw.desk));
       expect(summary?.fields[1].value).toContain(`${raw.priority} / 2`);
       expect(summary?.fields[2].value).toBe(choiceLabel("next_check", raw.next_check));
@@ -363,7 +411,8 @@ describe("native Jev contract and one-attempt semantics", () => {
     expect(displaySource("offline_fixture")).toContain("OFFLINE FIXTURE");
     expect(displayFactValue("status", "future_status")).toBe("未対応の値（原値: future_status）");
     expect(displayFactValue("status", "未知の状態" )).toBe("未対応の値（原値: 未知の状態）");
-    expect(caseLabels.S1).toContain("自動車保険");
+    expect(caseLabels.S1).toContain("自動車");
+    expect(Object.keys(caseLabels)).toHaveLength(10);
     expect(localizedRubric.priorityCriteria).toHaveLength(3);
     expect(questions.desk.instructions).toBe(INTAKE_RUBRIC.desk.instructions);
     expect(questions.priority.criteria).toEqual(INTAKE_RUBRIC.priority.criteria);
@@ -372,7 +421,8 @@ describe("native Jev contract and one-attempt semantics", () => {
   it("localizes the saved live S1 native score legend only when the prefix matches its key", () => {
     const actual = structuredClone(liveS1NativeCard);
     const originalLegend = structuredClone(actual.answers.priority.legend);
-    const summary = summarizeDecision(actual);
+    const summary = summarizeDecision(actual, "insurance-intake-v1");
+    expect(summary?.fields[1].label).toBe("案内上の優先度（旧v1）");
     expect(summary?.fields[1].legend).toEqual([
       { key: "0", label: "通常の状況確認・手続きに関する問い合わせ" },
       { key: "1", label: "追加確認または申告内容との不一致" },
@@ -384,8 +434,13 @@ describe("native Jev contract and one-attempt semantics", () => {
 
     const mismatched = structuredClone(actual);
     mismatched.answers.priority.legend["0"] = "1: ordinary status or procedure inquiry";
-    const mismatchSummary = summarizeDecision(mismatched);
+    const mismatchSummary = summarizeDecision(mismatched, "insurance-intake-v1");
     expect(mismatchSummary?.fields[1].legend[0].label).toBe("未対応の値（原値: 1: ordinary status or procedure inquiry）");
+    const unknownVersionSummary = summarizeDecision(actual, "future-rubric-v9");
+    expect(unknownVersionSummary?.fields[1].label).toBe("スコア（基準版未確認）");
+    expect(unknownVersionSummary?.fields[1].value).toBe("1.24 / 2（基準版未確認。段階解釈はしていません）");
+    expect(unknownVersionSummary?.fields[1].legend[0].label).toBe(actual.answers.priority.legend["0"]);
+    expect(unknownVersionSummary?.fields[1].probabilities[0].label).toMatch(/^未対応の値/);
   });
 
   it("distinguishes missing, invalid choice, wrong-type, and out-of-range responses", () => {
@@ -444,10 +499,11 @@ describe("native Jev contract and one-attempt semantics", () => {
 
 describe("offline and live gates", () => {
   it("renders only explicit offline fixtures, independent of credentials", () => {
-    const preview = createOfflinePreview("S3", true, "none");
+    const preview = createOfflinePreview("S3", "none");
     expect(preview.mode).toBe("OFFLINE FIXTURE");
     expect(preview.apiFacts.uniqueGetCount).toBe(0);
-    expect(preview.comparison.liveGetCount).toBe(0);
+    expect(preview).not.toHaveProperty("comparison");
+    expect(preview.jevCard?.criteriaVersion).toBe("insurance-intake-v2");
     expect(preview.jevCard?.label).toMatch(/OFFLINE FIXTURE.*Jev未実行/);
     expect(preview.notice).toMatch(/LLM、MCP、Jevには接続していません/);
   });
@@ -472,7 +528,7 @@ describe("offline and live gates", () => {
       AI_GATEWAY_JEV_URL: "https://example.invalid/jev", AI_GATEWAY_JEV_API_KEY: "present", AI_GATEWAY_JEV_MODEL: "jev-model", AI_GATEWAY_JEV_TIMEOUT_MS: "5000",
       MCP_CUSTOMER_URL: "https://example.invalid/a", MCP_PRODUCT_URL: "https://example.invalid/b", MCP_APPLICATION_URL: "https://example.invalid/c", MCP_CLAIM_URL: "https://example.invalid/d", MCP_POLICY_URL: "https://example.invalid/e",
 } as unknown as NodeJS.ProcessEnv;
-    const agent = vi.fn(async () => ({ status: "mocked" }));
+    const agent = vi.fn(async (_input: Parameters<typeof runLiveTurn>[0]) => { void _input; return { status: "mocked" }; });
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(30) }, { ...env, MCP_API_KEY: undefined }, agent)).toMatchObject({ status: 503 });
     expect(agent).not.toHaveBeenCalled();
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(1) }, { ...env, LIVE_ACCESS_APPROVED: "false" }, agent)).toMatchObject({ status: 503 });
@@ -482,17 +538,12 @@ describe("offline and live gates", () => {
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: " ", requestId: requestId(3) }, env, agent)).toMatchObject({ status: 400 });
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "x".repeat(2001), requestId: requestId(4) }, env, agent)).toMatchObject({ status: 400 });
     expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: "invalid" }, env, agent)).toMatchObject({ status: 400 });
-    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", comparison: true, requestId: requestId(5) }, env, agent)).toMatchObject({ status: 409 });
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", comparison: true, requestId: requestId(5) }, env, agent)).toMatchObject({ status: 400 });
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", snapshotId: "legacy-snapshot-id", requestId: requestId(6) }, env, agent)).toMatchObject({ status: 400 });
     expect(agent).toHaveBeenCalledTimes(1);
-    const taintedFacts = { ...scenarios.S1.facts, customer: { ...scenarios.S1.facts.customer!, email: "CANARY-COMPARISON-EMAIL" } };
-    const saved = trustedSnapshots.save("S1", taintedFacts);
-    const comparison = await dispatchLivePayload({ caseId: "S1", inquiry: "same facts, changed question", comparison: true, snapshotId: saved.snapshotId, requestId: requestId(6) }, env, agent);
-    expect(comparison.status).toBe(200);
-    expect(agent).toHaveBeenCalledWith(expect.objectContaining({ parentSnapshotHash: saved.factsHash, parentSnapshot: expect.any(Object) }));
-    expect(JSON.stringify(agent.mock.calls)).not.toContain("CANARY");
-    const callCount = agent.mock.calls.length;
-    expect(await dispatchLivePayload({ caseId: "S2", inquiry: "question", comparison: true, snapshotId: saved.snapshotId, requestId: requestId(7) }, env, agent)).toMatchObject({ status: 409 });
-    expect(agent.mock.calls).toHaveLength(callCount);
+    expect(await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(7) }, env, agent)).toEqual({ status: 200, payload: { status: "mocked" } });
+    expect(agent).toHaveBeenCalledTimes(2); // Same case and text with a new request ID starts a new turn.
+    expect(agent.mock.calls[1][0]).not.toHaveProperty("parentSnapshot");
     const leaking = vi.fn(async () => { throw new Error("CANARY-BANK-998877 provider trace"); });
     const safeError = await dispatchLivePayload({ caseId: "S1", inquiry: "synthetic question", requestId: requestId(8) }, env, leaking);
     expect(safeError.status).toBe(502);
@@ -617,14 +668,18 @@ describe("offline and live gates", () => {
   });
 
   it("wires UI offline/live selection to distinct local routes using a stable live ID", async () => {
-    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => { void _input; void _init; return new Response(null, { status: 200 }); });
     const id = requestId(13);
     expect(isRequestId(id)).toBe(true);
-    await submitDemoRequest({ mode: "live", caseId: "S1", inquiry: "synthetic", failure: "none", comparison: false, requestId: id }, fetcher);
+    await submitDemoRequest({ mode: "live", caseId: "S1", inquiry: "synthetic", failure: "none", requestId: id }, fetcher);
+    const liveBody = JSON.parse(fetcher.mock.calls[0][1]?.body as string);
+    expect(liveBody).toMatchObject({ caseId: "S1", inquiry: "synthetic", requestId: id });
+    expect(liveBody).not.toHaveProperty("comparison");
+    expect(liveBody).not.toHaveProperty("snapshotId");
     expect(fetcher).toHaveBeenCalledWith("/api/live", expect.objectContaining({ body: expect.stringContaining(id) }));
-    await submitDemoRequest({ mode: "offline", caseId: "S2", inquiry: "not sent", failure: "none", comparison: true }, fetcher);
+    await submitDemoRequest({ mode: "offline", caseId: "S2", inquiry: "not sent", failure: "none" }, fetcher);
     expect(fetcher).toHaveBeenLastCalledWith("/api/offline", expect.objectContaining({ body: expect.not.stringContaining("not sent") }));
-    await expect(submitDemoRequest({ mode: "live", caseId: "S1", inquiry: "x", failure: "none", comparison: false }, fetcher)).rejects.toThrow(/request ID/);
+    await expect(submitDemoRequest({ mode: "live", caseId: "S1", inquiry: "x", failure: "none" }, fetcher)).rejects.toThrow(/request ID/);
   });
 
   it("evicts only completed request records while retaining replay/conflict and all in-flight work", async () => {
@@ -687,6 +742,8 @@ describe("bounded chat history and per-turn evidence", () => {
     expect(recentConversationHistory(turns, "S1", "offline")).toEqual([]);
     const appended = appendChatTurn(turns, { id: "live-s1-2", caseId: "S1", mode: "live", inquiry: "S1 second", replies: [{ label: "Normal LLM", text: "two" }], safeTools: projectSafeToolStatus("completed", null), evidence: evidenceTwo });
     expect(appended).toHaveLength(4);
+    expect(appended.map((turn) => turn.id)).toEqual(["live-s1-1", "live-s2-1", "offline-s1-1", "live-s1-2"]);
+    expect(recentConversationHistory(appended, "S1", "live")).toEqual([{ caseId: "S1", mode: "live", userText: "S1 second", assistantText: "Normal LLM: two" }]);
     expect(selectedChatTurn(appended, "live-s1-2")?.evidence).toBe(evidenceTwo);
     expect(selectedChatTurn(appended, "live-s1-2")?.inquiry).toBe("S1 second");
     expect(selectedChatTurn(appended, "missing")).toBeNull();
@@ -716,6 +773,17 @@ describe("bounded chat history and per-turn evidence", () => {
     expect(fixturePlan.receipts[0]).toMatchObject({ status: "fixture_plan_only", source: "offline_fixture" });
     const host = projectSafeToolStatus("completed", { invocationCount: 1, receipts: [{ tool: "customer", status: "completed", source: "live_api", actor: "host" }] });
     expect(host.receipts[0]).toMatchObject({ actor: "host", tool: "customer" });
+    const beyondFormerLimit = projectSafeToolStatus("completed", {
+      invocationCount: 12,
+      receipts: Array.from({ length: 12 }, () => ({ tool: "claim", status: "completed", source: "live_api", actor: "llm" })),
+    });
+    expect(beyondFormerLimit.invocationCount).toBe(12);
+    expect(beyondFormerLimit.receipts).toHaveLength(12);
+    const removedSnapshotReceipt = projectSafeToolStatus("completed", {
+      invocationCount: 1,
+      receipts: [{ tool: "claim", status: "completed", source: "parent_snapshot", actor: "host" }],
+    });
+    expect(removedSnapshotReceipt.receipts).toEqual([]);
   });
 });
 

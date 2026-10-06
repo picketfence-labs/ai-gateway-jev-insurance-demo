@@ -1,12 +1,12 @@
-# Test plan
+# 検証計画
 
-Status: offline unit contracts, package commands, secret scanning, and CI are implemented. Previous chat/history checks and browser smoke passed; current Japanese UI display checks pass with 28 unit tests and zero secret-scan findings. Independent localization delta review and Japanese localhost confirmation passed; see [browser evidence](evidence/browser-smoke.md). The live adapter is tested only through mocks. No upstream request, model, MCP server, or Jev endpoint has been exercised.
+今回の受入は10ケース・fresh-turn取得・v2基準のモック契約と独立レビュー。実施者用の手順は [TEST.md](../TEST.md)、設計変更は [ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md)。今回の実モデルPOSTは0回。既存の [ブラウザー証拠](evidence/browser-smoke.md) とComposeの実行記録は過去版の証拠であり、この差分の品質証明ではない。
 
 ## Offline acceptance before live access
 
 | Requirement | Cases | Required evidence |
 |---|---|---|
-| Agent actually calls tools | Tool selection and dependency-respecting order vary | Recorded agent tool invocations; host does not prefetch or auto-complete |
+| Agent actually calls tools | Tool selection and dependency-respecting order vary | Recorded agent tool invocations; ホストはルート取得前に先取りしない。LLM正常完了後の不足分だけを同じラッパーで取得し、取得者を明示する |
 | Scope is enforced before network | Unknown root, unrelated customer, undiscovered ID, list/write/Simulation | Zero disallowed network calls; explicit stop |
 | Complete ledger | No calls, partial sets, 404, type mismatch, omitted fields, conflicting references | Jev call count zero; LLM text cannot supply missing facts |
 | Raw customer boundary | Canary fields in customer raw response, errors, logs, streams | No canaries in SDK-visible results, Jev payload, logs, UI, or persisted evidence |
@@ -14,13 +14,13 @@ Status: offline unit contracts, package commands, secret scanning, and CI are im
 | Jev contract | Missing answer key, wrong Choice, nonfinite/out-of-range score, invalid probabilities/confidence | Contract error; do not forward raw response or synthesize success |
 | Jev probability maps | Empty, missing candidate, unknown candidate, or incomplete Score map | Require every allowed candidate key, preserve values, warn above `1e-6` drift without normalization |
 | One attempt and replay | Duplicate request ID concurrently, after timeout, or after 15 minutes; reuse ID with changed payload | One process-local agent/Jev run, cached response replay for identical input, conflict for changed input, failure stays consumed until process restart |
-| Comparison | Parent snapshot hit/miss, reordered and duplicate tool calls | Visible snapshot source, fixed facts/rubric, no live fallback |
+| 毎ターンの取得 | 10ケース、複数新規ターン、同文異事実、同じ事実の複合／曖昧文脈 | 新しい台帳とfresh GET。比較入力は拒否し、前ターン事実を再利用しない。想定の方向と実Jev品質を区別 |
 | Phase C | Success and decision failure | Tools disabled; supplement cannot overwrite cards; failure skips supplement |
-| UI status and routing | Offline/live mode selection, readiness locked/ready, pending/error/completed | Offline default, no config values exposed, distinct routes, same request ID on unchanged retry, fixtures labeled offline |
+| UI status and routing | ユーザーはliveのみ、readiness locked/ready, pending/error/completed | サーバー未承認時はlocked、設定値非公開、fixtureにフォールバックしない, same request ID on unchanged retry, fixtures labeled offline |
 | Bounded conversation context | One prior same-case live turn plus current inquiry; cross-case/mode, extra payload, or oversized input | At most two user turns total; text-only and length-checked before LLM; prior conversation explicitly unverified and cannot supply facts; Jev receives current inquiry only |
-| Chat/evidence state | Append assistant response and supplement, select historical turn, change case or mode | Turns append; only selected turn's four evidence sections render; case/mode change clears chat, snapshot, selection and results; fixture narrative/tool plan is labeled not model output/not executed; safe tool status excludes raw data/errors |
-| Evidence separation | User statement, projected facts, host rubric/version, Jev result, LLM supplement | Four evidence sections stay distinct; show the ordered priority scale and keep the supplement separate |
-| Japanese display mapping | Known/unknown Jev choices, score legend, confidence, probability, status/source, rubric, and all three fixture cases | Japanese explanatory text only; preserve underlying contract/decision/facts exactly; confidence is not correctness; unknown enum/status shows an unsupported-value label with raw value; optional collapsed JSON keeps original English keys/values |
+| Chat/evidence state | Append assistant response and supplement, select historical turn, change case or mode | 内部時系列・元ターン番号を保持し、表示は最新順。 only selected turn's four evidence sections render; case/mode change clears chat, selection and results; fixture narrative/tool plan is labeled not model output/not executed; safe tool status excludes raw data/errors |
+| Evidence separation | User statement, projected facts, host rubric/version, Jev result, LLM supplement | Four evidence sections stay distinct; 追加確認度の基準と実際のcriteriaVersionを表示し、v1記録をv2で再解釈しない and keep the supplement separate |
+| Japanese display mapping | Known/unknown Jev choices, score legend, confidence, probability, status/source, rubric, and 全10ケース | Japanese explanatory text only; preserve underlying contract/decision/facts exactly; confidence is not correctness; unknown enum/status shows an unsupported-value label with raw value; optional collapsed JSON keeps original English keys/values |
 | Limits | Tool/step/text/byte/output bounds and partial ledgers | Stop explicitly without silent truncation or hidden retrieval |
 
 Implemented test file: `tests/unit/contracts.test.ts`. It uses synthetic fixtures and mocks; it does not make upstream requests. Realtime streaming and message-part rendering are not implemented. Keep credentials and real customer fields out of test data and evidence.
@@ -67,7 +67,7 @@ Minimum wiring to confirm with the environment owner:
 - Route Jev to the existing TypeSafe-native decisions endpoint using its native request/response contract, never by translating through ChatCompletion. The exact AI Gateway 2.2 native route URL/path, forwarding/auth setup, and end-to-end compatibility are not verified; confirm them with the route owner before any smoke.
 - Inject key values through the environment's approved secret-delivery mechanism. Do not put key values, customer data, or populated deployment configuration in this repository, issue, or chat.
 
-Adapter limits affect smoke planning: all five MCP clients now send the separate `MCP_API_KEY` in the fixed `apikey` header; missing configuration fails closed. The owner must provision the matching key-auth strategy and Consumer; no auth bypass is allowed. MCP initialization/tools discovery may make network requests outside the business-tool invocation counter and are not covered by `MCP_TIMEOUT_MS`. Comparison's zero-business-GET guarantee does not mean zero protocol/network traffic. See the current [Compose and CP preparation proposal](ai-gateway-compose.md#konnect-payloads-and-approval-gated-stages); its single-turn limits are not execution approval.
+Adapter limits affect smoke planning: all five MCP clients now send the separate `MCP_API_KEY` in the fixed `apikey` header; missing configuration fails closed. The owner must provision the matching key-auth strategy and Consumer; no auth bypass is allowed. MCP initialization/tools discovery may make network requests outside the business-tool invocation counter and are not covered by `MCP_TIMEOUT_MS`. 新規ターンは毎回GETを行う。業務GET数はMCP初期化・探索などのプロトコル通信総数ではない。 See the current [Compose and CP preparation proposal](ai-gateway-compose.md#konnect-payloads-and-approval-gated-stages); its single-turn limits are not execution approval.
 
 The current live validator requires the following names and shapes; it assigns no URL, model, or timeout values:
 - Explicit gates: `DEMO_MODE=live`, `LIVE_ACCESS_APPROVED=true`, and `LIVE_UI_ENABLED=true`. These may only be enabled after separate owner approval; offline remains the default.
@@ -87,12 +87,13 @@ No live request is authorized by configuration readiness, this checklist, or an 
 
 Verify the exact runtime/image and source pins, five MCP GET-detail interfaces, projection, and the chosen normal LLM wire format/tool/streaming route. Under the separately approved smoke method, validate Jev's TypeSafe-native decisions route, JSON-string state, and answer schema before any further individually agreed test turns; do not translate Jev requests or responses through ChatCompletion. Record all attempted calls and failures, not just successes.
 
-Core expectations are hypotheses:
-- S1: claim-progress desk; additional-information contact is relevant to the comparison.
-- S2: application desk; correction intake is relevant after the correction request.
-- S3: payment desk; receipt-confirmation and amount-breakdown are different next checks.
+## 文脈の想定と合格条件を分ける
 
-Preserve actual outputs when hypotheses fail. Report transport success and recommendation quality separately. A score change, desk change, calibrated confidence, or perfect answer rate is not required or guaranteed.
+10ケースの主想定は [TEST.md](../TEST.md) の仮説であり、実Jev出力の保証ではない。実送信前の機械的な合格条件は選択レコード・当該ターンの参照・投影・基準版・ネイティブ応答表示の正しさ。Scoreは連続実数で、0/1/2の完全一致や変化を合格条件にしない。
+
+追加確認度は、0が問われた記録項目の限定説明、1が投影にない詳細、2が同じ投影項目・値の明示的な異議を人手で照合する必要性。2は真の矛盾や緊急度の確定ではない。requestedとpaidの差だけでは不足払いとせず、nullを0とせず、支払済は銀行入金確認としない。基準命令にこれらの制約とfacts+inquiryの双方を明示する。モック検証で実Jevが守ると保証しない。
+
+過去のv1証拠を不変として保持し、actual criteriaVersionを結果に保存する。Jevの内部理由や代替成功値を生成しない。独立レビューはsource/tests/TEST/設計整合を現在の差分で確認する。
 
 There is no app flow quota or monetary cap. The process-local single-flight registry retains at most 4,096 records. A new request evicts the oldest completed record when full; in-flight entries are never evicted. Replay/conflict protection applies only while an ID is retained, not after eviction or restart. Do not resend a historic evicted request ID. All-in-flight saturation rejects new work until completion, rather than permanently stopping a sequential demo. The registry manages memory and duplicate submissions, not model traffic.
 

@@ -1,14 +1,13 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, type ToolSet } from "ai";
-import { AttemptRegistry, executeAtMostOnce, buildNativeRequest, parseNativeDecision } from "./jev";
+import { AttemptRegistry, executeAtMostOnce, buildNativeRequest, parseNativeDecision, CRITERIA_VERSION } from "./jev";
 import { TurnLedger, executeScopedMcpCall, operationIds } from "./ledger";
 import { TurnUsageCounter, validateLiveConfig } from "./live-config";
 import { createGatewayApiKeyFetch } from "./gateway-auth";
 import { ContractError } from "./projection";
 import { runDecisionPhases } from "./orchestration";
-import { isCaseId, requiredEntities, scenarios, type CaseId, type Entity, type ProjectedFacts } from "./scenarios";
-import { trustedSnapshots } from "./snapshot-store";
+import { isCaseId, requiredEntities, scenarios, type CaseId, type Entity } from "./scenarios";
 import { serializeConversationContext, validateConversationHistory, type ConversationTurn } from "./conversation";
 import type { SafeToolReceipt } from "./chat-state";
 
@@ -205,7 +204,7 @@ async function callNativeJev(config: NonNullable<Extract<ReturnType<typeof valid
   return response.json() as Promise<unknown>;
 }
 
-export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; requestId: string; conversationHistory?: unknown; parentSnapshot?: ProjectedFacts; parentSnapshotHash?: string; failureReporter?: (evidence: unknown) => void }) {
+export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; requestId: string; conversationHistory?: unknown; failureReporter?: (evidence: unknown) => void }) {
   if (!isCaseId(options.caseId)) throw new ContractError("Unknown synthetic case");
   if (typeof options.inquiry !== "string" || options.inquiry.trim().length === 0 || options.inquiry.length > 2000) {
     throw new ContractError("Inquiry must be 1–2000 characters");
@@ -219,7 +218,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
   if (!checked.ok) throw new Error(checked.reason);
   const config = checked.config;
   const scenario = scenarios[options.caseId];
-  const ledger = new TurnLedger(options.caseId, options.parentSnapshot ? "parent_snapshot" : "live_api", options.parentSnapshot);
+  const ledger = new TurnLedger(options.caseId);
   const clients: Array<{ close?: () => Promise<void> | void }> = [];
   const requestCounter = { count: 0 };
   const turnCounter = new TurnUsageCounter();
@@ -271,7 +270,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
               finally { if (timer) clearTimeout(timer); }
             },
           );
-          toolReceipts.push({ tool: entity, status: "completed", source: result.source === "parent_snapshot" ? "parent_snapshot" : "live_api", actor });
+          toolReceipts.push({ tool: entity, status: "completed", source: "live_api", actor });
           return result;
         } catch (error) {
           toolReceipts.push({ tool: entity, status: "failed", source: "unavailable", actor });
@@ -350,11 +349,6 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       else throw error;
     }
 
-    let savedSnapshot: { snapshotId: string; factsHash: string } | null = null;
-    if (!options.parentSnapshot) {
-      try { ledger.assertCompleteAndRelated(); savedSnapshot = trustedSnapshots.save(options.caseId, ledger.facts); }
-      catch { /* An incomplete turn cannot be used for comparison. */ }
-    }
     return {
       runId,
       mode: result.status === "completed"
@@ -365,8 +359,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       source: ledger.sourceLabel,
       llmText: acquisition.text,
       facts: ledger.facts,
-      liveGetCount: ledger.sourceLabel === "live_api" ? ledger.uniqueSuccessfulGetCount : 0,
-      snapshotRecordCount: ledger.sourceLabel === "parent_snapshot" ? ledger.uniqueSuccessfulGetCount : 0,
+      liveGetCount: ledger.uniqueSuccessfulGetCount,
       decision: result.status === "completed" ? result.jev : null,
       supplement: result.status === "completed" ? result.supplement : null,
       status: result.status,
@@ -376,8 +369,7 @@ export async function runLiveTurn(options: { caseId: CaseId; inquiry: string; re
       gatewayRequestCount: requestCounter.count,
       turnUsage: turnCounter.usage(),
       toolStatus: { invocationCount: turnCounter.usage().mcpInvocations, receipts: toolReceipts },
-      snapshotId: savedSnapshot?.snapshotId ?? null,
-      factsHash: savedSnapshot?.factsHash ?? options.parentSnapshotHash ?? null,
+      criteriaVersion: CRITERIA_VERSION,
     };
   } catch (error) {
     recordFailure(stage, error);

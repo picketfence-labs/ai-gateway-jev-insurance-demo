@@ -13,7 +13,8 @@ vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: createMCPClientMock }));
 
 import { runLiveTurn } from "@/lib/gateway-agent";
 import { operationIds, TurnLedger } from "@/lib/ledger";
-import { scenarios, requiredEntities, type CaseId, type Entity } from "@/lib/scenarios";
+import { scenarios, caseKeys, requiredEntities, type CaseId, type Entity } from "@/lib/scenarios";
+import { INTAKE_RUBRIC } from "@/lib/rubric";
 import { ContractError } from "@/lib/projection";
 
 const liveEnv: Record<string, string> = {
@@ -67,7 +68,7 @@ function run(events: unknown[], failureReporter?: (value: unknown) => void, case
 }
 
 describe("live turn failure evidence", () => {
-  it("runs repeated fresh turns beyond former process quotas and snapshot comparison with no detail GET", async () => {
+  it("runs ten repeated fresh turns and reacquires selected-case facts on every turn", async () => {
     const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
     const toolCalls: Entity[] = [];
     setupClients(async (entity) => { toolCalls.push(entity); return scenarios.S1.facts[entity]; });
@@ -79,24 +80,74 @@ describe("live turn failure evidence", () => {
       await model.fetch("https://gateway.example.test/v1/insurance-normal/chat/completions", { method: "POST" });
       return { text: "synthetic response" };
     });
-    for (let index = 0; index < 5; index += 1) {
+    for (let index = 0; index < 10; index += 1) {
       const result = await run([]);
       expect(result.status).toBe("completed");
+      expect(result.source).toBe("live_api");
       expect(result.gatewayRequestCount).toBe(2);
       expect(result.jevAttemptReserved).toBe(1);
       expect(result.liveGetCount).toBe(4);
       expect(result.turnUsage).toEqual({ phaseAGenerations: 1, supplementGenerations: 1, mcpInvocations: 4 });
       expect(result).not.toHaveProperty("processBudgetUsage");
+      expect(result).not.toHaveProperty("snapshotId");
+      expect(result).not.toHaveProperty("snapshotRecordCount");
     }
-    expect(toolCalls).toHaveLength(20);
-    expect(network).toHaveBeenCalledTimes(15); // ten normal and five native Jev requests, all mocked.
-    const compared = await runLiveTurn({ caseId: "S1", inquiry: "synthetic comparison", requestId: nextId(), parentSnapshot: scenarios.S1.facts, failureReporter: () => {} });
-    expect(compared.status).toBe("completed");
-    expect(compared.source).toBe("parent_snapshot");
-    expect(compared.liveGetCount).toBe(0);
-    expect(compared.toolStatus.invocationCount).toBe(4); // local snapshot reads, not business GETs.
-    expect(toolCalls).toHaveLength(20);
-    expect(network).toHaveBeenCalledTimes(18); // comparison still reruns normal LLM, Jev and supplement.
+    expect(toolCalls).toHaveLength(40);
+    expect(network).toHaveBeenCalledTimes(30); // All 30 model/Jev transport calls are mocked.
+  });
+
+  it.each(caseKeys.map((caseId) => scenarios[caseId]))("builds a fresh seeded $id turn and sends its v2 native Jev input", async (scenario) => {
+    const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
+    const getCalls: { entity: Entity; args: unknown }[] = [];
+    setupClients(async (entity, args) => {
+      getCalls.push({ entity, args: structuredClone(args) });
+      return scenario.facts[entity] as unknown;
+    });
+    const jevBodies: Record<string, unknown>[] = [];
+    const network = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (request.url.includes("/jev/")) {
+        jevBodies.push(JSON.parse(await request.clone().text()) as Record<string, unknown>);
+        return new Response(JSON.stringify(native), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    vi.stubGlobal("fetch", network);
+    generateTextMock.mockImplementation(async ({ model, maxRetries }: { model: { fetch: typeof fetch }; maxRetries: number }) => {
+      expect(maxRetries).toBe(0);
+      await model.fetch("https://gateway.example.test/v1/insurance-normal/chat/completions", { method: "POST" });
+      return { text: "合成データのmock応答です。" };
+    });
+
+    const result = await runLiveTurn({ caseId: scenario.id, inquiry: scenario.inquiry, requestId: nextId(), failureReporter: () => {} });
+
+    expect(scenario.inquiry.length).toBeGreaterThan(150);
+    expect(result.status).toBe("completed");
+    expect(result.source).toBe("live_api");
+    expect(result.criteriaVersion).toBe(INTAKE_RUBRIC.version);
+    expect(result.facts).toEqual(scenario.facts);
+    expect(result.liveGetCount).toBe(requiredEntities(scenario.id).length);
+    expect(getCalls.map(({ entity }) => entity)).toEqual(scenario.toolOrder);
+    for (const { entity, args } of getCalls) {
+      const fact = scenario.facts[entity] as Record<string, unknown>;
+      expect(args).toEqual({ [`path_${entity}_id`]: fact[`${entity}_id`] });
+    }
+    expect(jevBodies).toHaveLength(1);
+    expect(jevBodies[0].questions).toMatchObject({ priority: { type: "score", criteria: INTAKE_RUBRIC.priority.criteria } });
+    const state = JSON.parse(jevBodies[0].state as string);
+    expect(state).toMatchObject({ criteria_version: "insurance-intake-v2", user_inquiry: scenario.inquiry });
+    const { application, claim, policy, product } = scenario.facts;
+    const expectedFacts = application ? {
+      application: { status: application.status, resulting_policy_reference_present: application.resulting_policy_id !== null },
+      product: { product_name: product!.product_name, category: product!.category, coverage_summary: product!.coverage_summary, status: product!.status },
+    } : {
+      claim: { claim_type: claim!.claim_type, status: claim!.status, claim_amount_requested: claim!.claim_amount_requested, claim_amount_paid: claim!.claim_amount_paid },
+      policy: { status: policy!.status },
+      product: { product_name: product!.product_name, category: product!.category, coverage_summary: product!.coverage_summary, status: product!.status },
+    };
+    expect(state.facts).toEqual(expectedFacts);
+    expect(JSON.stringify(state)).not.toMatch(/(?:CUS|PRD|POL|CLM|APP)-\d+/);
+    expect(network).toHaveBeenCalledTimes(3); // Normal model, native Jev and supplement; all mocked.
   });
 
   it.each(["completed", "failed"] as const)("separates producer success reason from %s supplement status", async (supplementStatus) => {

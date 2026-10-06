@@ -1,45 +1,34 @@
-# AI Gateway and Jev insurance inquiry demo
+# Kong AI Gateway と Jev の保険問い合わせデモ
 
-This private repository contains a conversational insurance inquiry demo. The Japanese-language UI preserves the normal LLM agent, scoped MCP tool wrappers, host ledger, native Jev request boundary, and separate LLM supplement. The user-facing UI is live-only; offline fixtures remain internal tests, not a selectable mode. The live path remains locked unless its server-side mode, approval, UI-enable flag, and required configuration all validate. One scoped S1 live turn completed; see the [accepted checkpoint](docs/ai-gateway-compose.md#latest-accepted-checkpoint-one-live-s1-insurance-turn) for exact evidence and limits.
+この非公開リポジトリには、合成保険レコードを使う会話型デモがあります。通常のLLMがKong AI Gateway経由で読み取り専用MCPツールを選び、ホストが取得事実を検証してJevへ渡します。Jevの応答とLLM補足は別々に表示します。
 
-**Delivery boundary:** the local Japanese UI appends chat turns and lets the user select one turn’s evidence; historical evidence cards are never combined. For a live request, only one prior same-case live turn plus the current inquiry may be sent to the normal agent as unverified conversation context. Jev receives only the current inquiry and current-turn ledger. Offline assistant text/tool plans are fixtures, not model output or executed tools. User-facing choice/status/source/rubric summaries are Japanese display mappings; native values and raw evidence remain unchanged and are available in collapsed JSON details. Realtime conversational streaming and message-part rendering remain unimplemented. Evidence expands beside each turn, with longer content and technical details collapsed.
+画面は日本語で、10の固定seedケースを選びます。画面にオフライン実行の選択肢はありません。ライブ接続は既定でロックされ、承認済み環境・承認・必要設定が揃った場合だけ送信できます。リアルタイムストリーミングとメッセージ部分ごとの表示は未実装です。
 
-This demo is not an underwriting, payment eligibility, customer authentication, or service commitment system.
+このデモは保険引受、支払可否、本人確認、サービス提供の約束を行いません。実Jevの応答品質や上流接続をオフラインテストで証明するものでもありません。
 
-## Read before changing the demo
+## 変更前に読む
 
-1. [Design brief](docs/design-brief.md) describes scope, scenarios, and trust boundaries.
-2. [Decision record](docs/decisions/0001-agent-and-host-decision-boundary.md) records the agent and host responsibilities.
-3. [Test plan](docs/test-plan.md) lists implementation checks, live-only evidence, and [minimum live preparation inputs](docs/test-plan.md#minimum-live-preparation-inputs); preparation is not live-access approval.
+1. [日本語テストシナリオ](TEST.md)では、10ケースそれぞれの選択名、入力全文、確認事項、想定の方向を確認できます。手動ライブテストの承認ではありません。
+2. [設計概要](docs/design-brief.md)でスコープ、seed、信頼境界を確認します。
+3. [決定記録 0001](docs/decisions/0001-agent-and-host-decision-boundary.md)でLLMとホストの責務、[決定記録 0002](docs/decisions/0002-fresh-turns-and-contextual-intake-v2.md)で新規ターンとv2基準を確認します。
+4. [テスト計画](docs/test-plan.md)でオフライン検証と、別途承認が必要なライブ準備を確認します。
+5. [作業項目 #1](docs/issue-draft.md)と[トラブルシューティング記録](docs/troubleshooting-log.md)で実装条件と検証記録を確認します。
 
-4. [Work item #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1) is the approved offline implementation contract; see the [local copy](docs/issue-draft.md).
-5. [Troubleshooting log](docs/troubleshooting-log.md) records implementation observations and check evidence.
+## Composeの静的設定
 
-## Local Compose scaffold
+`compose.yaml`はKong AI Gateway 2.2のdata plane、このUI、5つの内部保険APIコンテナを記述します。設定はライブアクセスを有効にせず、KonnectのAI Modelやprovider entityも作成しません。証明書、モデル経路、認証、Jevネイティブendpoint、MCP経路は環境ownerが用意する入力です。
 
-`compose.yaml` describes the local AI Gateway 2.2 DP, this UI app, and five
-internal-only insurance API containers. It defaults to offline mode and does
-not create Konnect AI Model/provider entities or enable live access. Read the
-[Compose owner-input and safety notes](docs/ai-gateway-compose.md) before
-preparing a local `.env`. The DP hosts/certificates, model aliases and routes,
-provider/auth setup, Jev native endpoint, and MCP routes remain owner TODOs.
-
-For non-daemon static template validation, use the command below. Actual scoped
-image/runtime/S1 evidence is separately recorded in the Compose guide; this
-command alone does not verify connectivity:
+次のコマンドはdaemonを起動せず、Compose設定を検証します。イメージのbuild、起動、API・Gateway・MCP・モデル・Jevとの接続は確認しません。
 
 ```sh
 docker compose --env-file .env.example config --quiet
 ```
 
-The existing GitHub Actions workflow runs on pushes and pull requests with
-Node.js 22 and live approval flags disabled; it runs lint, typecheck, 65 unit
-tests, secret scanning, and a production build. These checks do not validate
-the Compose images or live integrations; see [test plan](docs/test-plan.md).
+GitHub ActionsはNode.js 22でlint、typecheck、unit test、secret scan、production buildを実行します。これらのオフライン検証は上流接続やモデル品質を証明しません。
 
-## Run the UI (locked without live settings)
+## UIを起動する
 
-Use Node.js 22 and npm. From the repository root, install the pinned dependencies and start the local UI:
+Node.js 22とnpmを使います。リポジトリのrootで依存関係を入れ、ローカルUIを起動します。
 
 ```sh
 npm ci --legacy-peer-deps --no-audit --no-fund
@@ -49,9 +38,11 @@ npm ci --legacy-peer-deps --no-audit --no-fund
 NEXT_TELEMETRY_DISABLED=1 npm run dev
 ```
 
-Open `http://127.0.0.1:3000`. Without approved complete live settings the UI disables submission; it never falls back to fixtures. The case picker uses Japanese names. Only an explicit enabled local overlay permits model/API requests. Do not enter real customer data or secrets.
+`http://127.0.0.1:3000`を開きます。完全な承認済みライブ設定がなければ送信できず、fixtureへフォールバックしません。秘密や実在する顧客情報を入力しないでください。ライブ設定を変更したり、モデル/APIへ送信したりする前に、対象環境、実行範囲、費用について別途承認を得てください。
 
-## Run checks
+## オフライン検証
+
+リポジトリrootで次のコマンドを実行します。
 
 ```sh
 npm run lint
@@ -73,19 +64,32 @@ npm run secret-scan
 NEXT_TELEMETRY_DISABLED=1 npm run build
 ```
 
-Current quota-removal checks pass lint, typecheck, **65 unit tests**, secret scan (60 files, zero findings), production build and independent review. Actual component rendering and native HTML disclosure behavior were checked with saved native responses and mock conversation turns, without new paid calls. Process/per-turn flow quotas were removed; six-step acquisition stopping, timeouts, retry zero and one Jev evaluation per turn remain. Five repeated fresh turns and a zero-GET snapshot comparison passed through mocked live transport. See [current quota-removal contract](docs/ai-gateway-compose.md#continuous-owner-only-demo-quota-removal) and [current UI evidence](docs/ai-gateway-compose.md#user-facing-ui-refinement-offline-verification-only). Offline checks are separate from the recorded single S1 live checkpoint.
+unit testは合成fixtureとmock transportを使います。実Jevの選択、連続Scoreの値、confidence、応答品質を保証しません。各ケースの実モデル評価は、[TEST.md](TEST.md)の確認手順と別途承認に従って記録してください。
 
-## Demo boundaries
+## 動作とデータの境界
 
-- Customer, Product, Application, Claim, and Policy support only approved GET-detail operations. Simulation, list, search, and write tools are out of scope.
-- The normal LLM selects MCP tools. Host code validates a complete, scoped ledger and projects responses before returning tool results to the SDK.
-- Jev receives host-built, ID-free JSON-string state through the TypeSafe-native request shape. The UI keeps an actual parsed Jev response separate from the LLM supplement.
-- Comparisons read an in-process, server-held projected snapshot. A missing or out-of-scope snapshot never falls back to a live business GET.
-- Request replay protection and snapshots are process-local. Restarting the process or using multiple instances does not provide durable idempotency or shared state.
-- Offline cards are explicitly marked as fixtures. They are not model output, API results, or Jev decisions.
-- The live agent may receive only the most recent completed same-case live user/assistant turn plus the current inquiry (two user turns total). This prior dialogue is unverified context, is length-checked, and cannot satisfy facts; raw tool payloads are never placed in conversation history. Case changes clear the chat and snapshots; the user-facing mode is always live.
-- UI tool receipts expose only allowlisted tool name, safe status, source, and count. Offline tool plans are explicitly not executed. The UI does not implement streaming.
+- Customer、Product、Application、Claim、Policyは承認されたGET-detail操作だけを使います。検索、一覧、Simulation、書き込み操作は行いません。
+- 通常のLLMがMCPツールを選択します。ホストは現在のターンの投影済み台帳、ID範囲、参照関係を検証してからJevを呼び出します。
+- CustomerのAPI生応答はホストが受信しますが、氏名、連絡先、住所、口座、国民識別番号、健康詳細は許可リスト投影で除外し、LLM SDK、Jev、UI、ログへ渡しません。自由入力文は別の境界です。実在する顧客情報を入力しないでください。Jevへ送るJSON文字列にはIDを含めません。
+- 画面で新しい問い合わせを送ると新しいターンです。選択した固定ケースの事実を毎回APIから取得します。同じ事実を使う比較チェックボックスやスナップショット再利用はありません。
+- 保持中の同一リクエストIDと同じ入力を再送した場合は、処理中または完了結果を返し、新しく実行しません。同じIDに異なる入力を付けると拒否します。これはプロセス内の重複送信対策で、再起動後や複数instance間の永続的な冪等性ではありません。
+- LLMには同一ケースの直前の会話1ターンを未検証の文脈として渡す場合があります。その文脈は事実取得の代用にならず、Jevは現在の問い合わせと現在ターンの台帳だけを受け取ります。ケース変更で会話を消去します。
+- オフラインfixtureは内部テスト専用です。LLM出力、API応答、実際のJev判断として扱いません。
+- 会話履歴は画面で最新ターンから表示します。ターンは内部で送信順に保持し、各ターンの証拠はそのターンの問い合わせと並べて表示します。
+- Jevの追加確認度は0〜2の連続実数です。信頼度は正しさや客観的緊急度を保証しません。申告上の差は確認済みの矛盾ではありません。
 
-The normal LLM route through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. The current normal model uses Gemini 2.5 Flash only; GPT is unconfigured. Scoped runtime approvals and actual evidence are recorded in the [Compose guide](docs/ai-gateway-compose.md). Tracked live defaults remain off; complete approved local settings are required, and this UI refinement used no new paid calls.
+## rootにあるTypeScriptファイル
 
-Public references: [Chat UI](https://github.com/picketfence-labs/konnect-code-mode-mcp), [insurance APIs](https://github.com/picketfence-labs/kong-api-bundle-insurance).
+rootのTypeScriptファイルはアプリの業務ロジックではなく、フレームワークとテストランナーの設定・型参照です。Next.jsとVitestがrootから設定を読み込むため、この配置が適切です。
+
+- `next.config.ts`はNext.js設定です。現在は`X-Powered-By` headerを無効にします。
+- `vitest.config.ts`はVitest設定です。`@` aliasを`src/`へ解決し、`tests/**/*.test.ts`を実行対象にします。
+- `next-env.d.ts`はNext.jsが生成する型参照です。業務ソースではなく、手作業で編集しません。
+- `tsconfig.tsbuildinfo`はTypeScript増分buildの生成キャッシュで、`.gitignore`対象です。`.ts`ソースではありません。
+
+アプリケーションコードは`src/`、unit testは`tests/unit/`に置きます。上記設定を`src/`へ移動すると、Next.jsやVitestの標準的な検出場所から外れます。
+
+## 参考リポジトリ
+
+- [Kong MCP Chat UI](https://github.com/picketfence-labs/konnect-code-mode-mcp)
+- [合成保険API](https://github.com/picketfence-labs/kong-api-bundle-insurance)

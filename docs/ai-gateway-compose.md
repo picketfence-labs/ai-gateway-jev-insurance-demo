@@ -1,5 +1,7 @@
 # Local Compose boundary
 
+> 現行差分の仕様は10ケース・毎ターン取得・v2追加確認度。[ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md) と [TEST.md](../TEST.md) を参照。以下の比較ON／親スナップショット・3ケース・v1の記述は過去の実装／検証記録として保存する。現行では比較機能を撤廃し、新規ターンは毎回事実を取得する。本差分に対する新しい実モデルPOSTは実施しない。
+
 `compose.yaml` is a local topology template for a Konnect-managed AI Gateway 2.2
 data plane, this Next.js app, and five private insurance API containers. It does
 not create or configure Konnect entities. `DEMO_MODE=offline` and the two live
@@ -8,6 +10,19 @@ non-routable placeholders. The model and MCP URLs in `.env.example` are route
 candidates only and do not imply that those Konnect routes exist. Copy the
 template only to an ignored local `.env` when an owner supplies real values.
 Do not add certs, keys, provider credentials, or inbound API keys to Git.
+
+## 10ケース・毎ターン取得・v2基準のweb更新
+
+現在のweb image: `sha256:47922edb386865256af20bdccc5d7a2de637e3b44b6a509567bfe21b3e0bc7f4`。
+2026-10-06 **23:05:09 JST** のbash date確認時点で、承認済みの既存ローカル設定を再利用し、webのみを `--no-deps --no-build --force-recreate` で再作成した。
+既存data planeと5 APIはcontainer ID・image・開始時刻が更新前と一致した。
+秘密設定の本文や展開値は出力していない。GET /はHTTP 200、10個の日本語ケース選択名、比較checkboxなしを確認。
+GET /api/live/readinessはHTTP 200、`ready: true` / `status: explicitly configured`。
+これは起動・画面・設定状態の証拠であり、API・MCP・通常LLM・Jevの新規実行や接続品質の証明ではない。今回の実モデルPOSTは0回。
+
+lint、typecheck、77 unit tests、secret scan（61ファイル／検出0）、production build、Docker web build、diff checkが成功し、source/docsオフライン差分の独立レビューもPASS。
+[TEST.md](../TEST.md) の操作手順と [ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md) が現在のケース・取得・追加確認度の境界を示す。
+以下の古いimage、比較ON/OFF、3ケース、v1結果の記述は過去の検証記録として保持する。v1証拠は変更していない。
 
 ## Continuous owner-only demo: quota removal
 

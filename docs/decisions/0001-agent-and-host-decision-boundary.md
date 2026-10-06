@@ -1,5 +1,7 @@
 # ADR 0001: Keep agent tool selection separate from host decisions
 
+> 比較スナップショットの決定は [ADR 0002](0002-fresh-turns-and-contextual-intake-v2.md) で置き換える。エージェント取得・ホスト評価・ツール無効補足の分離は維持する。以下は当初の設計・検証状態を保存した記録。
+
 Date: 2026-10-05. Status: accepted; offline implementation scaffold added, independent review pending.
 
 ## Context

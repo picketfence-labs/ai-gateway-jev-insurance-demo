@@ -14,11 +14,8 @@ export class TurnLedger {
   readonly facts: ProjectedFacts = {};
   private readonly discovered = new Map<Entity, Set<string>>();
   private readonly successful = new Set<string>();
-  private source: "live_api" | "parent_snapshot";
 
-  constructor(readonly caseId: CaseId, source: "live_api" | "parent_snapshot" = "live_api", readonly parentSnapshot?: ProjectedFacts) {
-    this.source = source;
-  }
+  constructor(readonly caseId: CaseId) {}
 
   authorize(entity: Entity, id: unknown): string {
     if (typeof id !== "string" || !idPattern.test(id)) throw new ContractError("Tool ID is outside the allowed scope");
@@ -70,15 +67,6 @@ export class TurnLedger {
     }
   }
 
-  recordFromParentSnapshot(entity: Entity, id: string): NonNullable<ProjectedFacts[Entity]> {
-    const record = this.parentSnapshot?.[entity] as NonNullable<ProjectedFacts[Entity]> | undefined;
-    const recordId = record && (record as unknown as Record<string, unknown>)[`${entity}_id`];
-    if (!record || recordId !== id) throw new ContractError("Parent snapshot entry is unavailable; no live fallback is allowed");
-    const projected = projectApiRecord(entity, record, id);
-    this.record(entity, id, projected);
-    return structuredClone(projected);
-  }
-
   private discover(entity: Entity, id: string): void {
     const values = this.discovered.get(entity) ?? new Set<string>();
     values.add(id);
@@ -105,7 +93,7 @@ export class TurnLedger {
   }
 
   get uniqueSuccessfulGetCount(): number { return this.successful.size; }
-  get sourceLabel(): "live_api" | "parent_snapshot" { return this.source; }
+  get sourceLabel(): "live_api" { return "live_api"; }
   has(entity: Entity): boolean { return Boolean(this.facts[entity]); }
 
   cached(entity: Entity, id: string): NonNullable<ProjectedFacts[Entity]> | undefined {
@@ -120,7 +108,7 @@ export class TurnLedger {
     }
     const customer = this.facts.customer!;
     const product = this.facts.product!;
-    if (this.caseId === "S2") {
+    if (scenarios[this.caseId].rootEntity === "application") {
       const app = this.facts.application!;
       if (app.customer_id !== customer.customer_id || app.product_id !== product.product_id) throw new ContractError("Application references do not match the acquired records");
     } else {
@@ -147,22 +135,10 @@ export class TurnLedger {
   }
 }
 
-export function createComparisonLedger(caseId: CaseId, parent: ProjectedFacts): TurnLedger {
-  return new TurnLedger(caseId, "parent_snapshot", parent);
-}
-
-export function readSnapshotOnly(ledger: TurnLedger, entity: Entity, id: string): NonNullable<ProjectedFacts[Entity]> {
-  ledger.authorize(entity, id);
-  return ledger.recordFromParentSnapshot(entity, id);
-}
-
 export async function executeScopedMcpCall(ledger: TurnLedger, operationId: string, args: unknown, send: () => Promise<unknown>) {
   const authorized = ledger.authorizeOperation(operationId, args);
   const cached = ledger.cached(authorized.entity, authorized.id);
   if (cached) return { source: ledger.sourceLabel, data: cached };
-  if (ledger.sourceLabel === "parent_snapshot") {
-    return { source: "parent_snapshot", data: ledger.recordFromParentSnapshot(authorized.entity, authorized.id) };
-  }
   let raw: unknown;
   try { raw = await send(); }
   catch { throw new ContractError("Upstream tool request failed; response details were redacted"); }

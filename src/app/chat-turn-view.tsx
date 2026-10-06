@@ -1,4 +1,4 @@
-import type { Entity } from "@/lib/scenarios";
+import { scenarios, type Entity } from "@/lib/scenarios";
 import type { ChatTurn } from "@/lib/chat-state";
 import { INTAKE_RUBRIC } from "@/lib/rubric";
 import { caseLabels, displayDecisionReason, displayFactField, displayFactValue, displayLiveMode, displaySource, displayState, displayToolStatus, displayWarning, entityLabel, localizedRubric, summarizeDecision } from "@/lib/ja-display";
@@ -10,7 +10,6 @@ export type LiveResult = {
   llmText: string;
   facts: Record<string, unknown>;
   liveGetCount: number;
-  snapshotRecordCount: number;
   decision: Record<string, unknown> | null;
   supplement: string | null;
   status: string;
@@ -18,7 +17,7 @@ export type LiveResult = {
   reason: string | null;
   supplementStatus?: "completed" | "failed" | null;
   gatewayRequestCount: number;
-  snapshotId: string | null;
+  criteriaVersion?: string;
   toolStatus: unknown;
 };
 
@@ -43,7 +42,7 @@ function RubricView() {
     <p>{localizedRubric.disclaimer}</p>
     <h4>案内先候補 · 選択式（Choice）</h4><p>{localizedRubric.deskInstructions}</p>
     <ul>{localizedRubric.deskCriteria.map(([key, label]) => <li key={key}>{label} <code>({key})</code></li>)}</ul>
-    <h4>案内上の優先度 · スコア方式（Score）0〜2</h4><p>{localizedRubric.priorityInstructions}</p>
+    <h4>追加確認度 · スコア方式（Score）0〜2</h4><p>{localizedRubric.priorityInstructions}</p>
     <ol>{localizedRubric.priorityCriteria.map(([score, label]) => <li key={score}><code>{score}</code>: {label}</li>)}</ol>
     <p className="small">連続スコアとして返されます。信頼度は事実の正しさや客観的な緊急度を保証しません。</p>
     <h4>次に確認すること · 選択式（Choice）</h4><p>{localizedRubric.nextCheckInstructions}</p>
@@ -58,8 +57,8 @@ function primaryLabel(value: string): string {
   return value; // Unknown raw-value fallback is unchanged.
 }
 
-function DecisionSummaryView({ value }: { value: unknown }) {
-  const summary = summarizeDecision(value);
+function DecisionSummaryView({ value, version }: { value: unknown; version: string }) {
+  const summary = summarizeDecision(value, version);
   if (!summary) return <p className="empty">所定の形式の判断結果はありません。代替スコアは表示していません。</p>;
   return <>
     {summary.fields.map((field) => <section key={field.key} className="decision-field">
@@ -73,6 +72,12 @@ function DecisionSummaryView({ value }: { value: unknown }) {
   </>;
 }
 
+function criteriaVersionLabel(version: string | undefined): string {
+  if (version === "insurance-intake-v1") return "insurance-intake-v1（保存応答・旧基準）";
+  if (version === "insurance-intake-v2") return "insurance-intake-v2";
+  return "基準版未確認";
+}
+
 
 export function ChatTurnView({ turn, index }: { turn: LiveChatTurn; index: number }) {
   const live = turn.evidence.result;
@@ -82,21 +87,47 @@ export function ChatTurnView({ turn, index }: { turn: LiveChatTurn; index: numbe
     <div className="step">ターン {index + 1} · {label}</div>
     <h3>お問い合わせ</h3>{turn.inquiry.length > 160 ? <details><summary>{turn.inquiry.slice(0,160)}…（全文を表示）</summary><p>{turn.inquiry}</p></details> : <p>{turn.inquiry}</p>}
     {turn.replies.map((reply, i) => <details className="chat-reply" key={i}><summary>{reply.label}：{reply.text.slice(0, 100)}{reply.text.length > 100 ? "…（全文を表示）" : ""}</summary><p>{reply.text}</p></details>)}
-    <p className="small">状態: {displayState(turn.safeTools.state)} · 事実取得の操作 {turn.safeTools.invocationCount}/8件 · LLM {turn.safeTools.receipts.filter(x => x.actor === "llm").length}件 / 評価準備（アプリ）{turn.safeTools.receipts.filter(x => x.actor === "host").length}件</p>
+    <p className="small">状態: {displayState(turn.safeTools.state)} · 事実取得の操作 {turn.safeTools.invocationCount}件 · LLM {turn.safeTools.receipts.filter(x => x.actor === "llm").length}件 / 評価準備（アプリ）{turn.safeTools.receipts.filter(x => x.actor === "host").length}件</p>
     <details className="turn-evidence" name="turn-evidence"><summary>このターンの証拠を表示</summary>
       <p className="notice">{displayLiveMode(live.mode)}。{displaySource(live.source)} · 業務API GET {live.liveGetCount}件</p>
       <section className="panel"><h3>お問い合わせの申告</h3><p>{turn.inquiry}</p><p className="small">会話文は未検証の申告であり、API事実ではありません。</p></section>
-      <details className="panel"><summary>取得した事実と操作記録</summary><ProjectedFactsView facts={live.facts} />
+      <details className="panel"><summary>取得した事実と操作記録</summary><AcquisitionBasisView turn={turn} /><ProjectedFactsView facts={live.facts} />
         <p className="small">操作指示の記録（キャッシュ結果を含む。個別の通信回数とは異なります）</p>
         <ul className="tool-receipts">{turn.safeTools.receipts.map((receipt,i) => <li key={i}>{receipt.actor === "llm" ? "LLMが選択" : "アプリが評価準備"} · {entityLabel(receipt.tool)}詳細 · {displayToolStatus(receipt.status)} · {displaySource(receipt.source)}</li>)}</ul>
       </details>
-      <details className="panel"><summary>判断基準（デモ用）</summary><RubricView /></details>
+      <p className="small">判断基準版: {criteriaVersionLabel(live.criteriaVersion)}（Jev試行0回の場合は未送信）</p><details className="panel"><summary>現在の判断基準（デモ用v2）</summary><RubricView /></details>
       <section className="panel"><h3>Jev結果</h3><p className="small">ホストが予約したJev試行: {live.jevAttemptReserved}/1</p>
-        {live.decision ? <DecisionSummaryView value={live.decision} /> : <p className="empty">Jev結果カードはありません。代替スコアは表示していません。</p>}
+        {live.decision ? <DecisionSummaryView value={live.decision} version={live.criteriaVersion ?? "unknown"} /> : <p className="empty">Jev結果カードはありません。代替スコアは表示していません。</p>}
         {live.status !== "completed" && <p className="error">{live.status === "ineligible" ? "必要な事実・範囲を満たさないため、Jevは未評価です。" : "Jevの判断を完了できませんでした。"}{live.reason ? ` ${displayDecisionReason(live.reason)}` : ""}</p>}
       </section>
       <details className="panel"><summary>LLM補足（Jev結果とは別の意見）</summary>{supplementFailed ? <p className="error">補足の生成に失敗しました。取得済みのJev判断カードは変更していません。</p> : live.supplement ? <p>{live.supplement}</p> : <p>補足は生成されませんでした。</p>}</details>
-      <details className="raw-evidence"><summary>実行の技術証跡</summary><p>実行ID: <code>{live.runId}</code> · Gatewayリクエスト数: {live.gatewayRequestCount} · スナップショット記録数: {live.snapshotRecordCount}</p></details>
+      <details className="raw-evidence"><summary>実行の技術証跡</summary><p>実行ID: <code>{live.runId}</code> · Gatewayリクエスト数: {live.gatewayRequestCount}</p></details>
     </details>
   </li>;
+}
+
+export function ChatHistoryView({ turns }: { turns: LiveChatTurn[] }) {
+  return <ol className="chat-history">{turns.map((turn, index) => ({ turn, index })).reverse().map(({ turn, index }) => <ChatTurnView key={turn.id} turn={turn} index={index} />)}</ol>;
+}
+
+function safeId(record: unknown, entity: Entity): string | null {
+  const value = isRecord(record) ? record[`${entity}_id`] : null;
+  return typeof value === "string" && /^[A-Z]{3}-(?:[0-9]{3}|[0-9]{6})$/.test(value) ? value : null;
+}
+function AcquisitionBasisView({ turn }: { turn: LiveChatTurn }) {
+  const { facts } = turn.evidence.result;
+  const scenario = scenarios[turn.caseId];
+  const root = safeId(facts[scenario.rootEntity], scenario.rootEntity);
+  const refs = [["customer_id", "customer"], ["product_id", "product"], ["policy_id", "policy"], ["resulting_policy_id", "policy"]] as const;
+  const relations = (["claim", "application", "policy"] as const).flatMap((entity) => {
+    const record = facts[entity];
+    const sourceId = safeId(record, entity);
+    if (!isRecord(record) || !sourceId) return [];
+    return refs.flatMap(([field, target]) => {
+      const id = record[field];
+      if (field === `${entity}_id` || typeof id !== "string" || !/^[A-Z]{3}-(?:[0-9]{3}|[0-9]{6})$/.test(id)) return [];
+      return [{ key: `${entity}-${field}`, text: `${entityLabel(entity)} ${sourceId} の応答上の参照 → ${entityLabel(target)} ${id}（${safeId(facts[target], target) === id ? "このターンで取得済み" : "参照あり・関連レコードは未取得"}）` }];
+    });
+  });
+  return <section className="fact-group"><h4>取得対象の根拠と参照関係</h4><p>選択ケースの合成起点: {entityLabel(scenario.rootEntity)} {scenario.rootId}（{root === scenario.rootId ? "このターンで取得済み" : "起点の取得は未確認"}）</p><p className="small">問い合わせ文から顧客を検索しません。選択ケースの固定請求／申込IDから、取得応答に含まれる参照IDだけをたどります。以下は応答上の参照関係であり、実取得順やLLM内部の判断理由、本人確認や認証ではありません。顧客の氏名・連絡先は表示しません。</p>{relations.length ? <ul>{relations.map(({key,text})=><li key={key}>{text}</li>)}</ul> : <p>取得済みの参照関係はありません。</p>}</section>;
 }

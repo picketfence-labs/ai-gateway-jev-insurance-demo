@@ -1,5 +1,7 @@
 # Work item: Implement the offline insurance inquiry demo
 
+> この文書は初期のオフライン実装契約の保存コピー。現行の10ケース／毎ターン取得／v2追加確認度は [ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md) と [TEST.md](../TEST.md) を参照。初期の3ケース・比較スナップショット・未接続記述は当時の境界であり、現在の実装や新規の実行証拠を表さない。
+
 **Approved offline implementation contract. Not ready for live execution.** The target repository is private. Live execution remains unapproved. Posted work item: [Issue #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1).
 
 ## Requested outcome
