@@ -60,3 +60,9 @@ button[aria-pressed="true"] { outline: 2px solid #004f4b; outline-offset: 2px; }
 .decision-field { border-top: 1px solid var(--line); padding-top: 5px; }
 footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 26px; padding: 18px 0; font-size: 13px; }
 @media (max-width: 720px) { .shell { padding: 25px 14px; } .grid { grid-template-columns: 1fr; } .result-heading { align-items: flex-start; flex-direction: column; } .live-gate { align-items: flex-start; flex-direction: column; } .fact-row { grid-template-columns: 1fr; gap: 2px; } }
+
+.turn-evidence > summary { cursor: pointer; font-weight: 700; padding: 10px 0; color: var(--teal); }
+.turn-evidence .panel { margin-top: 10px; }
+details > summary { cursor: pointer; }
+.chat-reply summary { line-height: 1.6; overflow-wrap: anywhere; }
+.raw-evidence pre { max-height: 420px; }

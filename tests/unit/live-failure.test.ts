@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { generateTextMock, createOpenAIMock, createMCPClientMock } = vi.hoisted(() => ({
@@ -66,6 +67,25 @@ function run(events: unknown[], failureReporter?: (value: unknown) => void, case
 }
 
 describe("live turn failure evidence", () => {
+  it.each(["completed", "failed"] as const)("separates producer success reason from %s supplement status", async (supplementStatus) => {
+    const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
+    const before = JSON.stringify(native);
+    generateTextMock.mockResolvedValueOnce({ text: "正常な回答" });
+    if (supplementStatus === "failed") generateTextMock.mockRejectedValueOnce(new Error("CANARY supplement error"));
+    else generateTextMock.mockResolvedValueOnce({ text: "補足" });
+    const transport = vi.fn(async () => new Response(JSON.stringify(native), { status: 200 }));
+    vi.stubGlobal("fetch", transport);
+    const result = await run([]);
+    expect(result.status).toBe("completed");
+    expect(result.reason).toBeNull();
+    expect(result.supplementStatus).toBe(supplementStatus);
+    expect(result.decision?.answers.priority.confidence).toBe(0);
+    expect(result.decision?.model).toBe("jev-1.13.0");
+    expect(result.jevAttemptReserved).toBe(1);
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(result.supplement).toBe(supplementStatus === "failed" ? null : "補足");
+    expect(JSON.stringify(native)).toBe(before);
+  });
   it("records a normal-fetch timeout while reporter and client-close failures preserve the original error", async () => {
     const events: unknown[] = [];
     const timeout = new DOMException("CANARY raw transport message", "TimeoutError");

@@ -9,6 +9,51 @@ candidates only and do not imply that those Konnect routes exist. Copy the
 template only to an ignored local `.env` when an owner supplies real values.
 Do not add certs, keys, provider credentials, or inbound API keys to Git.
 
+## User-facing UI refinement (offline verification only)
+
+Latest UI image: `sha256:db8e60ad2594dc22204e32bb6acec6c426b26e034837b70a78960f60d73fd517`.
+The web service alone was recreated at the **20:52:16 JST** bash date checkpoint
+on 2026-10-06; DP and five API services were retained. Loopback port 3000,
+root HTTP 200 and readiness HTTP 200/ready true were verified. The
+[live-only initial screen](evidence/ui-refinement-live-only.png) was opened
+without submitting a chat. This is build/UI/readiness evidence, not a new
+inference; **agent-generated paid calls were zero** for this refinement.
+The original S1 actual image and live evidence below remain separate.
+Current offline checks: lint, typecheck, 64 tests, secret scan (60 files, zero
+findings), Next production build, Docker web build and diff check passed.
+Independent B review executed the 6 component and 2 producer regression tests.
+
+
+The UI now uses live requests only, with submission locked when readiness is
+false; there is no fixture fallback or mode picker. Cases have Japanese names; known machine keys are omitted from the primary
+card and retained in folded criteria/native JSON. Unknown-value fallbacks remain.
+Each turn has its own inline evidence disclosure; longer replies, probabilities,
+criteria and technical JSON remain available behind local disclosures.
+Opening another turn closes the previous evidence through native HTML details.
+
+Source inspection found that successful `supplementStatus: completed` was also
+returned as `reason`, which the UI mapped to a generic failure. The producer now
+returns null success reason and a separate supplement status. A failed supplement
+keeps the actual Jev card and explicitly reports the supplement failure;
+ineligible/decision-error states stay distinct. This explains a reproducible
+source-level false error, not a recovered response from the owner's session.
+The displayed JSON remains the strict parsed native decision, not raw HTTP or
+raw API/customer data. Its native values, including confidence zero, are unchanged.
+
+Offline checks include producer mock transports and actual React component SSR.
+The [three-turn view](evidence/ui-refinement-three-turns.png),
+[inline evidence](evidence/ui-refinement-inline-evidence.png) and
+[expanded native JSON](evidence/ui-refinement-native-json.png) use the saved S1
+native response with mock conversation turns. Their banner identifies this as
+saved-response rendering, not three live executions or new inference. Browser
+checks opened the first turn, expanded JSON, selected the second turn and closed
+it. Supplemental failure, ineligible and decision-error views were also checked
+using a separately labelled mock page, with [supplement failure](evidence/ui-refinement-supplement-failure.png),
+[ineligible](evidence/ui-refinement-ineligible.png) and
+[decision error](evidence/ui-refinement-decision-error.png) screenshots. No agent model/API submission was made during this UI refinement. Author work
+stalled before producing a diff; Manager took the limited author role, with B
+remaining an independent reviewer. No new dependency or UI framework was added.
+
 ## Latest accepted checkpoint: one live S1 insurance turn
 
 On 2026-10-06, one fresh S1 browser submission completed the normal LLM/MCP,
