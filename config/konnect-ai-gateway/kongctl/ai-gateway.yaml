@@ -1,0 +1,309 @@
+_defaults:
+  kongctl:
+    namespace: insurance-ai-gateway
+
+ai_gateways:
+  - ref: insurance-demo-ai-gateway
+    _external:
+      id: !env AI_GATEWAY_ID
+    model_providers:
+      - ref: insurance-demo-gemini
+        name: insurance-demo-gemini
+        display_name: Insurance Demo Gemini
+        type: gemini
+        config:
+          auth:
+            type: basic
+            headers:
+              - name: x-goog-api-key
+                value: !secret {source: !env GEMINI_API_KEY}
+
+      - ref: insurance-demo-typesafe
+        name: insurance-demo-typesafe
+        display_name: Insurance Demo TypeSafe
+        type: typesafe
+        config:
+          auth:
+            type: basic
+            headers:
+              - name: Authorization
+                value: !secret {source: !env TYPESAFE_AUTHORIZATION_HEADER}
+
+    auth_strategies:
+      - ref: insurance-demo-model-key-auth
+        name: insurance-demo-model-key-auth
+        display_name: Insurance Demo Model Key Auth
+        type: key-auth
+        config:
+          key_names: [apikey]
+          key_in_header: true
+          key_in_query: false
+          key_in_body: false
+          hide_credentials: true
+
+      - ref: insurance-demo-mcp-key-auth
+        name: insurance-demo-mcp-key-auth
+        display_name: Insurance Demo MCP Key Auth
+        type: key-auth
+        config:
+          key_names: [apikey]
+          key_in_header: true
+          key_in_query: false
+          key_in_body: false
+          hide_credentials: true
+
+    consumers:
+      - ref: insurance-demo-normal-consumer
+        name: insurance-demo-normal-consumer
+        display_name: Insurance Demo Normal Model Client
+        type: api-key
+        credentials:
+          - ref: insurance-demo-normal-credential
+            name: insurance-demo-normal-credential
+            display_name: Insurance Demo Normal Model Key
+            type: api-key
+            ttl: 0
+            api_key: !secret {source: !env AI_GATEWAY_API_KEY}
+
+      - ref: insurance-demo-jev-consumer
+        name: insurance-demo-jev-consumer
+        display_name: Insurance Demo Jev Client
+        type: api-key
+        credentials:
+          - ref: insurance-demo-jev-credential
+            name: insurance-demo-jev-credential
+            display_name: Insurance Demo Jev Key
+            type: api-key
+            ttl: 0
+            api_key: !secret {source: !env AI_GATEWAY_JEV_API_KEY}
+
+      - ref: insurance-demo-mcp-consumer
+        name: insurance-demo-mcp-consumer
+        display_name: Insurance Demo MCP Client
+        type: api-key
+        credentials:
+          - ref: insurance-demo-mcp-credential
+            name: insurance-demo-mcp-credential
+            display_name: Insurance Demo MCP Key
+            type: api-key
+            ttl: 0
+            api_key: !secret {source: !env MCP_API_KEY}
+
+    models:
+      - ref: insurance-demo-normal
+        name: insurance-normal
+        display_name: Insurance Demo Normal Model
+        type: model
+        enabled: true
+        capabilities: [generate]
+        formats:
+          - type: openai
+        access:
+          auth_strategies:
+            - !ref insurance-demo-model-key-auth
+        policies: []
+        targets:
+          - name: gemini-2.5-flash
+            provider: insurance-demo-gemini
+            config:
+              type: gemini
+        config:
+          route:
+            paths: [/v1/insurance-normal]
+            model:
+              body_param: model
+              values: [insurance-normal]
+          logging:
+            payloads: false
+          balancer:
+            algorithm: round-robin
+            retries: 0
+            failover_criteria: []
+
+      - ref: insurance-demo-jev-decisions
+        name: insurance-jev-decisions
+        display_name: Insurance Demo Jev Decisions
+        type: model
+        enabled: true
+        capabilities: [decisions]
+        formats:
+          - type: typesafe
+        access:
+          auth_strategies:
+            - !ref insurance-demo-model-key-auth
+        policies: []
+        targets:
+          - name: jev-latest
+            provider: insurance-demo-typesafe
+            config:
+              type: typesafe
+        config:
+          route:
+            paths: [/jev]
+          logging:
+            payloads: false
+          balancer:
+            algorithm: round-robin
+            retries: 0
+            failover_criteria: []
+
+    mcp_servers:
+      - ref: insurance-demo-customer-mcp
+        name: insurance-demo-customer-mcp
+        display_name: Insurance Demo Customer MCP
+        type: conversion-listener
+        enabled: true
+        config:
+          url: http://customer-api:8000
+          route:
+            paths: [/mcp/customer]
+          logging:
+            payloads: false
+        access:
+          acl_attribute_type: consumer
+          auth_strategies:
+            - !ref insurance-demo-mcp-key-auth
+          acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+          default_tool_acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+            deny: []
+        tools:
+          - name: get_customer_customers__customer_id__get
+            description: Read one synthetic customer detail for the current insurance case.
+            method: GET
+            path: /mcp/customer/customers/{customer_id}
+            parameters:
+              - name: customer_id
+                in: path
+                required: true
+                schema:
+                  type: string
+
+      - ref: insurance-demo-product-mcp
+        name: insurance-demo-product-mcp
+        display_name: Insurance Demo Product MCP
+        type: conversion-listener
+        enabled: true
+        config:
+          url: http://product-api:8000
+          route:
+            paths: [/mcp/product]
+          logging:
+            payloads: false
+        access:
+          acl_attribute_type: consumer
+          auth_strategies:
+            - !ref insurance-demo-mcp-key-auth
+          acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+          default_tool_acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+            deny: []
+        tools:
+          - name: get_product_products__product_id__get
+            description: Read one synthetic product detail for the current insurance case.
+            method: GET
+            path: /mcp/product/products/{product_id}
+            parameters:
+              - name: product_id
+                in: path
+                required: true
+                schema:
+                  type: string
+
+      - ref: insurance-demo-application-mcp
+        name: insurance-demo-application-mcp
+        display_name: Insurance Demo Application MCP
+        type: conversion-listener
+        enabled: true
+        config:
+          url: http://application-api:8000
+          route:
+            paths: [/mcp/application]
+          logging:
+            payloads: false
+        access:
+          acl_attribute_type: consumer
+          auth_strategies:
+            - !ref insurance-demo-mcp-key-auth
+          acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+          default_tool_acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+            deny: []
+        tools:
+          - name: get_application_applications__application_id__get
+            description: Read one synthetic application detail for the current insurance case.
+            method: GET
+            path: /mcp/application/applications/{application_id}
+            parameters:
+              - name: application_id
+                in: path
+                required: true
+                schema:
+                  type: string
+
+      - ref: insurance-demo-claim-mcp
+        name: insurance-demo-claim-mcp
+        display_name: Insurance Demo Claim MCP
+        type: conversion-listener
+        enabled: true
+        config:
+          url: http://claim-api:8000
+          route:
+            paths: [/mcp/claim]
+          logging:
+            payloads: false
+        access:
+          acl_attribute_type: consumer
+          auth_strategies:
+            - !ref insurance-demo-mcp-key-auth
+          acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+          default_tool_acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+            deny: []
+        tools:
+          - name: get_claim_claims__claim_id__get
+            description: Read one synthetic claim detail for the current insurance case.
+            method: GET
+            path: /mcp/claim/claims/{claim_id}
+            parameters:
+              - name: claim_id
+                in: path
+                required: true
+                schema:
+                  type: string
+
+      - ref: insurance-demo-policy-mcp
+        name: insurance-demo-policy-mcp
+        display_name: Insurance Demo Policy MCP
+        type: conversion-listener
+        enabled: true
+        config:
+          url: http://policy-api:8000
+          route:
+            paths: [/mcp/policy]
+          logging:
+            payloads: false
+        access:
+          acl_attribute_type: consumer
+          auth_strategies:
+            - !ref insurance-demo-mcp-key-auth
+          acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+          default_tool_acls:
+            allow: [!ref insurance-demo-mcp-consumer#name]
+            deny: []
+        tools:
+          - name: get_policy_policies__policy_id__get
+            description: Read one synthetic policy detail for the current insurance case.
+            method: GET
+            path: /mcp/policy/policies/{policy_id}
+            parameters:
+              - name: policy_id
+                in: path
+                required: true
+                schema:
+                  type: string

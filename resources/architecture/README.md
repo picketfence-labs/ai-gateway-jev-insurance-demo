@@ -4,6 +4,8 @@
 
 ローカルComposeのWeb、Kong AI Gateway data plane、5つの保険APIと、外部のKonnect、Gemini、TypeSafe / Jevを示します。5つのAPIは独立したコンテナですが、図では名前を列挙した1つのグループにまとめています。通常LLM、MCPの詳細GET、ネイティブJev評価、mTLSの管理設定同期を別の線で表します。Konnect CPは推論経路ではありません。
 
+TerraformがKonnectのAI Gateway instanceと公開DP証明書を管理し、kongctlがモデル・認証・MCPの管理entityを適用します。保険APIは公開GHCRイメージ、Webは`app/`からの独自ビルドです。構築手順は[INSTRUCTIONS](../../INSTRUCTIONS.md)を参照してください。
+
 ## 要素と根拠
 
 | 図の要素 | 設定・実装上の意味 | 根拠と観測範囲 |
@@ -13,7 +15,7 @@
 | AI Proxy Advanced（通常LLM用） | AI Modelに対応するモデル処理。Gemini 2.5 Flashを通常LLMに使用 | [公式2.x entity mapping](https://developer.konghq.com/ai-gateway/ai-gateway-v2-concepts/)、[現在と履歴の構成記録](../../docs/ai-gateway-compose.md)。未使用のOpenAI候補は実接続として描いていません。 |
 | AI Proxy Advanced（native Jev用） | 別のAI Modelに対応するTypeSafeネイティブ`decisions`処理 | [TypeSafe provider](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)、構成記録のネイティブJev checkpoint。2.2.0イメージのAdvanced→TypeSafe実装を確認した履歴があります。 |
 | AI MCP Proxy | AI MCP Server `conversion-listener`に対応する内部機能 | 公式2.x entity mappingはAI MCP ProxyとAI MCP Serverの対応を示します。管理するのはAI MCP Server entityです。legacyのService/Route/plugin設定をこのデモへ直接持ち込む手順ではありません。 |
-| key-auth | AI Auth Strategyの`type: key-auth`に対応する受信認証 | [認証strategy雛形](../../config/konnect-ai-gateway/auth-strategy-mcp.json)、構成記録。アプリの固定`apikey`ヘッダーと、外向きprovider認証を区別します。 |
+| key-auth | AI Auth Strategyの`type: key-auth`に対応する受信認証 | [kongctl宣言設定](../../config/konnect-ai-gateway/kongctl/ai-gateway.yaml)、構成記録。アプリの固定`apikey`ヘッダーと、外向きprovider認証を区別します。 |
 | 5つの保険API | Customer / Product / Application / Claim / Policy、許可されたGET詳細操作 | Compose、[MCP設定](../../config/konnect-ai-gateway/README.md)。RESTコンテナだけではMCPになりません。 |
 
 AI Model、AI Model Provider、AI MCP Server、AI Auth StrategyはKonnectの管理entityであり、plugin名ではありません。図のplugin箱は公式mapping上の対応機能と用途を示します。個別Routeに生成されたplugin instanceの対応付け、個別リクエストのhandler traceは直接観測していません。2つのAI Proxy Advanced箱も、観測したinstance数の主張ではありません。新規CPの作成や全10ケースのライブ品質は、この文書整備では検証していません。

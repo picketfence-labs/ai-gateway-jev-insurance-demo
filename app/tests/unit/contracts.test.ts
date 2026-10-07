@@ -15,7 +15,7 @@ import { createGatewayApiKeyFetch } from "@/lib/gateway-auth";
 import { validateConversationHistory, serializeConversationContext } from "@/lib/conversation";
 import { appendChatTurn, projectSafeToolStatus, recentConversationHistory, selectedChatTurn, type ChatTurn } from "@/lib/chat-state";
 import { caseLabels, choiceLabel, displayFactValue, displayLiveMode, displaySource, displayState, displayToolStatus, localizedRubric, summarizeDecision } from "@/lib/ja-display";
-import liveS1NativeCard from "../../docs/evidence/live-s1-a-native-card.json";
+import liveS1NativeCard from "../../../docs/evidence/live-s1-a-native-card.json";
 
 vi.mock("@ai-sdk/mcp", () => ({ createMCPClient: vi.fn() }));
 

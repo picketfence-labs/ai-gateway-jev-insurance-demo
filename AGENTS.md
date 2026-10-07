@@ -30,7 +30,7 @@
 ## 変更と証拠
 
 - architecture変更の前にADRと設計方針を更新します。予期しない挙動は起きた時点で[トラブルシューティング記録](docs/troubleshooting-log.md)へ記録します。
-- オフライン契約は`tests/unit/`で合成fixtureだけを使います。変更した範囲に応じて、lint、typecheck、test、secret scan、production buildを実行し、結果を[検証計画](docs/test-plan.md)と作業ログへ残します。これらはlive Gateway、MCP、model、Jevを検証しません。
+- オフライン契約は`app/tests/unit/`で合成fixtureだけを使います。変更した範囲に応じて、lint、typecheck、test、secret scan、production buildを実行し、結果を[検証計画](docs/test-plan.md)と作業ログへ残します。これらはlive Gateway、MCP、model、Jevを検証しません。
 - 画像、JSON evidence、保存済みlive responseは原本を変更しません。画面画像の値からraw responseを推定せず、歴史的な成功・失敗を現行の結果に書き換えません。
 - 返却時は変更点、実行した確認と対象版、証拠、未確認事項、逸脱、PR／ADR／logへの参照を示します。取得できない費用やusageは不明とし、秘密は含めません。
 - Coordinatorは技術証拠を独立に確認し、demo ownerが受入を判断します。PR mergeだけで作業項目を自動closeしません。

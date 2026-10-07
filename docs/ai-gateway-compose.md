@@ -2,7 +2,7 @@
 
 > **現在の構成は [INSTRUCTIONS.md](../INSTRUCTIONS.md) を正本として確認してください。** この文書の2026-10-06 日付付き確認は当時の実行・調査記録であり、現在のCompose起動・Konnect登録・推論成功を意味しません。比較ON／親スナップショット・3ケース・v1は過去の実装／検証記録です。
 
-`compose.yaml` はKonnect管理のKong AI Gateway 2.2.0データプレーン、Next.jsアプリ、保険API 5サービスのローカル構成です。ComposeはKonnect EntityやControl Planeを作成しません。Webのliveフラグは `${VAR:-safe-default}` で、既定値は `offline` / `false` / `false` のままです。live値は承認後、明示したGit管理外env fileからのみ渡してください。`.env.example` の `.invalid` hostとroute名は接続先ではなく候補です。実証明書、provider credential、Inbound API keyをGitへ追加しないでください。
+`compose.yaml` はKonnect管理のKong AI Gateway 2.2.0データプレーン、Next.jsアプリ、保険API 5サービスのローカル構成です。アプリは`app/`でビルドし、保険APIは公開GHCRの固定イメージを取得します。利用者によるAPIリポジトリのcloneやAPIビルドは不要です。ComposeはKonnect EntityやControl Planeを作成しません。Webのliveフラグは `${VAR:-safe-default}` で、既定値は `offline` / `false` / `false` のままです。live値は承認後、明示したGit管理外env fileからのみ渡してください。`.env.example` の `.invalid` hostとroute名は接続先ではなく候補です。実証明書、provider credential、Inbound API keyをGitへ追加しないでください。
 
 ## 2026-10-07時点の構成と再現境界
 
@@ -79,7 +79,7 @@ own webは**12:28:57 JST**に停止、DP/5API保持、tracked live既定offで�
 
 各ターンの取得と追加確認度の現行仕様は[design brief](design-brief.md)、[ADR 0001](decisions/0001-agent-and-host-decision-boundary.md)、[ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md)が正本です。旧 `parent_snapshot` 比較機能は撤廃済みで、後続の日付付き確認にあるsnapshot記述は過去仕様です。
 
-## Entity候補と読み取りCLIの境界
+## 2026-10-07の初回文書整備時点のCLI確認（履歴）
 
 [`config/konnect-ai-gateway/`](../config/konnect-ai-gateway/README.md) 内のJSONはowner review用request-body候補です。`kongctl`/decK/Terraformの宣言bundleでもApply-ready設定でもありません。新しい利用者のOrganization、Gateway ID、credentials、stateを含めず、この作業ではKonnect APIへのEntity作成・更新を行っていません。
 
@@ -181,7 +181,7 @@ operation IDは `picketfence-labs/kong-api-bundle-insurance@ab96eea303e27fe02d98
 [TypeSafe provider](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/),
 および[AI Model load balancing](https://developer.konghq.com/ai-gateway/load-balancing/).
 
-## 保険API source
+## 当時の保険API sourceとローカルbuild（履歴）
 
 API imageは兄弟checkout `../kong-api-bundle-insurance` のrevision `ab96eea303e27fe02d98344a31bc7633753da77e` からbuildします。既存 `services/Dockerfile` の5つの `SERVICE` とseed配置をレビューし、このrepoのwrapperは選択API codeと一致seedを各imageへ格納します。Dockerfile専用ignoreはallowlistで、無関係source、`.git`、local env、agent指示をcontextへ送りません。元のstatic review時点ではimage build未実行でした。後のruntime確認を参照してください。
 
