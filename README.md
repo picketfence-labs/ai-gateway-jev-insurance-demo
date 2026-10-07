@@ -1,97 +1,66 @@
-# Kong AI Gateway と Jev の保険問い合わせデモ
+# Kong AI Gateway 2.2 × Jev — 保険問い合わせデモ
 
-この非公開リポジトリには、合成保険レコードを使う会話型デモがあります。通常のLLMがKong AI Gateway経由で読み取り専用MCPツールを選び、ホストが取得事実を検証してJevへ渡します。Jevの応答とLLM補足は別々に表示します。
+10件の合成ケースで、問い合わせ内容と保険記録を照らし合わせる会話デモです。通常のLLMがKong AI Gateway経由で読み取り専用MCPツールを選び、ホストが取得事実を検証してTypeSafeのJevへ渡します。画面では、記録、Jevの判断、別のLLM補足を分けて確認できます。
 
-画面は日本語で、10の固定seedケースを選びます。画面にオフライン実行の選択肢はありません。ライブ接続は既定でロックされ、承認済み環境・承認・必要設定が揃った場合だけ送信できます。リアルタイムストリーミングとメッセージ部分ごとの表示は未実装です。
+このUIは日本語のライブ実行用です。オフラインfixtureは内部テストだけに使います。実在する顧客情報や秘密を入力しないでください。
 
-このデモは保険引受、支払可否、本人確認、サービス提供の約束を行いません。実Jevの応答品質や上流接続をオフラインテストで証明するものでもありません。
+## 画面例
 
-## 変更前に読む
+![合成ケースを選び、日本語の問い合わせを入力する画面例](resources/screenshots/input-screen.png)
 
-1. [日本語テストシナリオ](TEST.md)では、10ケースそれぞれの選択名、入力全文、確認事項、想定の方向を確認できます。手動ライブテストの承認ではありません。
-2. [設計概要](docs/design-brief.md)でスコープ、seed、信頼境界を確認します。
-3. [決定記録 0001](docs/decisions/0001-agent-and-host-decision-boundary.md)でLLMとホストの責務、[決定記録 0002](docs/decisions/0002-fresh-turns-and-contextual-intake-v2.md)で新規ターンとv2基準を確認します。
-4. [テスト計画](docs/test-plan.md)でオフライン検証と、別途承認が必要なライブ準備を確認します。
-5. [作業項目 #1](docs/issue-draft.md)と[トラブルシューティング記録](docs/troubleshooting-log.md)で実装条件と検証記録を確認します。
+*入力画面の例です。実際の接続状態やモデルの回答品質を証明する画像ではありません。*
 
-## Composeの静的設定
+![Jevの3項目と最多支持、平均スコア、自信を表示する結果画面例](resources/screenshots/jev-result.png)
 
-`compose.yaml`はKong AI Gateway 2.2のdata plane、このUI、5つの内部保険APIコンテナを記述します。設定はライブアクセスを有効にせず、KonnectのAI Modelやprovider entityも作成しません。証明書、モデル経路、認証、Jevネイティブendpoint、MCP経路は環境ownerが用意する入力です。
+*結果画面の例です。画面表示は実験証拠や保険上の判断ではありません。*
 
-次のコマンドはdaemonを起動せず、Compose設定を検証します。イメージのbuild、起動、API・Gateway・MCP・モデル・Jevとの接続は確認しません。
+## 何が起きるか
 
-```sh
-docker compose --env-file .env.example config --quiet
-```
+![Kong AI Gateway、通常LLM、MCP保険API、ホスト台帳、Jevの関係](resources/architecture/architecture.png)
 
-GitHub ActionsはNode.js 22でlint、typecheck、unit test、secret scan、production buildを実行します。これらのオフライン検証は上流接続やモデル品質を証明しません。
+*通常LLMはMCPツールを選び、ホストは当ターンの事実を検証してからJevを呼びます。Jevの後のLLM補足は別表示です。*
 
-## UIを起動する
+図の元データと参照根拠は[アーキテクチャ資料](resources/architecture/README.md)を参照してください。
 
-Node.js 22とnpmを使います。リポジトリのrootで依存関係を入れ、ローカルUIを起動します。
+1. **問い合わせ**: 利用者が合成ケースを選び、問い合わせを入力します。問い合わせ文から顧客を検索することはありません。
+2. **通常LLM**: 通常LLMはKong AI Gateway 2.2を通り、許可されたMCPの詳細取得ツールを選びます。正常に応答した後に必須事実が足りない場合だけ、ホストが不足分を取得することがあります。LLMが失敗した場合、ホストは補完せず評価を止めます。
+3. **MCP保険API**: Customer、Product、Application、Claim、Policyの5種類から、許可されたGET詳細操作だけを使います。サーバーは生のAPI応答を投影し、許可された項目だけをLLM SDKへ返します。
+4. **ホスト台帳とJev**: ホストは今回のターンで取得した型・ID・参照関係を検証します。必要な事実が揃ったターンだけ、現在の問い合わせとIDを除いた投影事実をTypeSafeのネイティブ形式でJevへ送り、3項目を評価します。JevはLLMのツールではありません。
+5. **LLM補足**: Jevの結果が有効な場合、通常LLMがツールを使わずに補足を生成することがあります。補足はJevの結果を書き換えません。
 
-```sh
-npm ci --legacy-peer-deps --no-audit --no-fund
-```
+## 画面で確認するもの
 
-```sh
-NEXT_TELEMETRY_DISABLED=1 npm run dev
-```
+- 利用者の申告と、当ターンに取得した保険記録
+- 取得元、許可された参照関係、LLMまたはホストが行った取得操作
+- 判断基準の版と3項目の定義
+- Jevが返した受付候補、追加確認度、次に確認すること、各確率と自信
+- Jevとは別に表示するLLM補足
 
-`http://127.0.0.1:3000`を開きます。完全な承認済みライブ設定がなければ送信できず、fixtureへフォールバックしません。秘密や実在する顧客情報を入力しないでください。ライブ設定を変更したり、モデル/APIへ送信したりする前に、対象環境、実行範囲、費用について別途承認を得てください。
+v2の「追加確認度」は0〜2の連続した平均スコアです。最多支持の段階、平均スコア、Jevが返した「Jev回答の自信」は別の値です。詳細と各表示の読み方は[Chat UIガイド](Chat%20UI.md)を参照してください。
 
-## オフライン検証
+## このデモで行わないこと
 
-リポジトリrootで次のコマンドを実行します。
+- 保険引受、補償範囲の確定、支払可否、本人確認、契約有効性の判定
+- リスト検索、Simulation、書き込み、実際の担当部署への割当
+- 実在する個人情報、実際の健康情報、口座情報、認証情報の送信
+- 失敗したJev呼び出しを成功結果へ置き換えること
 
-```sh
-npm run lint
-```
+「支払済」は銀行口座への入金を確認した意味ではありません。請求額と支払記録額の差だけで不足払いと判断せず、未記録の`null`を0へ変換しません。申告上の差は、記録の誤りや真の矛盾が確認されたことを意味しません。
 
-```sh
-npm run typecheck
-```
+## 実行状態と制約
 
-```sh
-npm test
-```
+現在の受入構成では、Kong AI Gateway 2.2で管理する通常AI ModelにGemini 2.5 Flash、別のJev用AI ModelにTypeSafeネイティブ`decisions`を使用します。どちらも公式mappingではAI Proxy Advancedに対応します。この構成の受入は、個別リクエストのwire trace、全10ケースの動作、回答品質を証明するものではありません。過去のS1ライブ記録はv1基準の履歴として[Compose実行記録](docs/ai-gateway-compose.md)に残っています。現行のv2基準や追加確認度をその実行結果で評価し直さないでください。
 
-```sh
-npm run secret-scan
-```
+ライブ送信はモデル、MCP、Jevへの実通信と費用が発生し得ます。設定が`ready`でも、上流の疎通や判断品質を確認したことにはなりません。合成データで使用し、送信前に利用するAPIの費用と認証設定を確認してください。起動手順は[INSTRUCTIONS.md](INSTRUCTIONS.md)、ケースごとの入力と期待方向は[TEST.md](TEST.md)を参照してください。
 
-```sh
-NEXT_TELEMETRY_DISABLED=1 npm run build
-```
+リアルタイムストリーミングとメッセージ部品ごとの描画は未実装です。プロセス再起動後や複数インスタンス間の会話・再送保証もありません。呼び出し回数のUI quotaや金額上限はありません。
 
-unit testは合成fixtureとmock transportを使います。実Jevの選択、連続Scoreの値、confidence、応答品質を保証しません。各ケースの実モデル評価は、[TEST.md](TEST.md)の確認手順と別途承認に従って記録してください。
+## 読む順番
 
-## 動作とデータの境界
+1. [INSTRUCTIONS.md](INSTRUCTIONS.md): 必要条件と安全な起動手順
+2. [Chat UI.md](Chat%20UI.md): 操作、ターン、証拠、スコアと確率の見方
+3. [TEST.md](TEST.md): 10ケースの入力全文、期待方向、比較手順
+4. [設計方針](docs/design-brief.md)と[検証計画](docs/test-plan.md): 現行仕様と検証範囲
+5. [ADR 0001](docs/decisions/0001-agent-and-host-decision-boundary.md)と[ADR 0002](docs/decisions/0002-fresh-turns-and-contextual-intake-v2.md): 設計判断
 
-- Customer、Product、Application、Claim、Policyは承認されたGET-detail操作だけを使います。検索、一覧、Simulation、書き込み操作は行いません。
-- 通常のLLMがMCPツールを選択します。ホストは現在のターンの投影済み台帳、ID範囲、参照関係を検証してからJevを呼び出します。
-- CustomerのAPI生応答はホストが受信しますが、氏名、連絡先、住所、口座、国民識別番号、健康詳細は許可リスト投影で除外し、LLM SDK、Jev、UI、ログへ渡しません。自由入力文は別の境界です。実在する顧客情報を入力しないでください。Jevへ送るJSON文字列にはIDを含めません。
-- 画面で新しい問い合わせを送ると新しいターンです。選択した固定ケースの事実を毎回APIから取得します。同じ事実を使う比較チェックボックスやスナップショット再利用はありません。
-- 保持中の同一リクエストIDと同じ入力を再送した場合は、処理中または完了結果を返し、新しく実行しません。同じIDに異なる入力を付けると拒否します。これはプロセス内の重複送信対策で、再起動後や複数instance間の永続的な冪等性ではありません。
-- LLMには同一ケースの直前の会話1ターンを未検証の文脈として渡す場合があります。その文脈は事実取得の代用にならず、Jevは現在の問い合わせと現在ターンの台帳だけを受け取ります。ケース変更で会話を消去します。
-- オフラインfixtureは内部テスト専用です。LLM出力、API応答、実際のJev判断として扱いません。
-- 会話履歴は画面で最新ターンから表示します。ターンは内部で送信順に保持し、各ターンの証拠はそのターンの問い合わせと並べて表示します。
-- `insurance-intake-v2` の追加確認度は0〜2の連続した平均スコアです。画面では、候補確率が最も高い段階、その確率加重平均として返されたスコア、Jevが返した「Jev回答の自信」を分けて表示します。同率の段階はすべて表示し、平均スコアを整数段階へ丸めません。
-- 「Jev回答の自信」はTypeSafeが候補確率の分布を要約した値で、モデルの自己申告・独立した再判定・正答率・客観的な緊急度ではありません。画面で再計算や閾値判定はしません。保存済みのv1応答はv1の尺度と凡例で表示し、v2へ読み替えません。申告上の差は確認済みの矛盾ではありません。
-- 計算方法は [TypeSafe Confidence](https://docs.typesafe.ai/confidence) と [TypeSafe Score](https://docs.typesafe.ai/primitives/score) の公開定義を参照してください。モック表示の合格は、実Jevの選択・スコア・自信や回答品質を証明しません。
-
-## rootにあるTypeScriptファイル
-
-rootのTypeScriptファイルはアプリの業務ロジックではなく、フレームワークとテストランナーの設定・型参照です。Next.jsとVitestがrootから設定を読み込むため、この配置が適切です。
-
-- `next.config.ts`はNext.js設定です。現在は`X-Powered-By` headerを無効にします。
-- `vitest.config.ts`はVitest設定です。`@` aliasを`src/`へ解決し、`tests/**/*.test.ts`を実行対象にします。
-- `next-env.d.ts`はNext.jsが生成する型参照です。業務ソースではなく、手作業で編集しません。
-- `tsconfig.tsbuildinfo`はTypeScript増分buildの生成キャッシュで、`.gitignore`対象です。`.ts`ソースではありません。
-
-アプリケーションコードは`src/`、unit testは`tests/unit/`に置きます。上記設定を`src/`へ移動すると、Next.jsやVitestの標準的な検出場所から外れます。
-
-## 参考リポジトリ
-
-- [Kong MCP Chat UI](https://github.com/picketfence-labs/konnect-code-mode-mcp)
-- [合成保険API](https://github.com/picketfence-labs/kong-api-bundle-insurance)
+作業履歴は[トラブルシューティング記録](docs/troubleshooting-log.md)、過去の画面検証は[ブラウザー証拠](docs/evidence/browser-smoke.md)、作業項目のローカル記録は[Issue #1の記録](docs/issue-draft.md)を参照してください。
