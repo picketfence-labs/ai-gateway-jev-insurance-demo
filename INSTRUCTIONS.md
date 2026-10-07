@@ -133,12 +133,15 @@ chmod 600 .env.local
 同じshellで使う短いComposeコマンドを定義します。新しいshellでは、この定義を再実行してください。
 
 ```sh
+DEMO_COMPOSE_PROJECT="${DEMO_COMPOSE_PROJECT:-ai-gateway-jev-insurance-demo}"
 demo() {
-  docker compose --env-file .env.local \
+  docker compose --project-name "$DEMO_COMPOSE_PROJECT" --env-file .env.local \
     --env-file config/konnect-ai-gateway/.local/runtime-secrets.env \
     --env-file config/konnect-ai-gateway/.local/iac-outputs.env "$@"
 }
 ```
+
+**初回構築では先に`demo ps -a`を実行し、既存コンテナが表示されたら起動へ進まないでください。** 同じホストの別cloneも、既定のproject名では既存サービスを更新します。別環境を追加する場合は、上の定義より前に`DEMO_COMPOSE_PROJECT`を固有の名前へ、`WEB_HOST_PORT`・`AI_GATEWAY_HOST_PORT`を未使用portへ設定してください。たとえば`export DEMO_COMPOSE_PROJECT=insurance-demo-second WEB_HOST_PORT=3001 AI_GATEWAY_HOST_PORT=18000`です。その場合、以降のWeb確認URLの`3000`も選んだportへ読み替えます。停止時も同じproject・env fileを使います。
 
 次の検査は展開した秘密を出力しません。`docker compose config`には必ず`--quiet`を付けます。
 
@@ -223,4 +226,4 @@ npm --prefix app run build
 - [公式Konnect provider](https://registry.terraform.io/providers/Kong/konnect/3.25.0/docs)
 - [kongctl v1.20.2](https://github.com/Kong/kongctl/releases/tag/v1.20.2)
 
-この構築手順はローカルschema、静的検査、dummy入力、独立レビューで検証しています。新しいKonnect環境への実apply、DPの新規接続、モデル・Jev推論は実施していません。実環境の権限、API側の制限、接続後の応答は別途確認が必要です。
+この構築手順は、USリージョンの既存組織内に新しいAI Gatewayと証明書を作成し、kongctl設定の適用、独立Compose環境の起動、通常LLM・MCP・native Jevによる3ケースの実通信、Terraform destroyまで検証しました。[実接続・撤去の記録](docs/evidence/live-iac-acceptance-2026-10-07.md)を参照してください。新しい組織の権限設定、一般Linuxの証明書ACL調整、全10ケースの回答品質、課金額はこの検証の対象外です。

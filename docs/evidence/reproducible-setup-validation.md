@@ -1,5 +1,7 @@
 # 再現可能なセットアップの検証
 
+この記録は2026-10-07 18:19 JSTまでの静的・隔離ローカル検査です。当時の未実施事項を成功へ書き換えていません。その後の実apply・実通信・destroyは[別の実接続記録](live-iac-acceptance-2026-10-07.md)に追記しています。
+
 ## 対象と境界
 
 `app/`への配置変更、公開GHCRの保険API、TerraformによるKonnect instance・公開DP証明書、kongctlによるAI Gateway設定が対象です。アプリの会話・投影・台帳・Jevの実行契約は変更しません。
