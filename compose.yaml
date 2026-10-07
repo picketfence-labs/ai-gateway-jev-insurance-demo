@@ -30,7 +30,7 @@ services:
         bind:
           create_host_path: false
     healthcheck:
-      # Process health only; this does not prove Konnect registration or connectivity.
+      # Kongプロセスの稼働確認のみ。Konnect登録や接続成功は証明しません。
       test: ["CMD", "kong", "health"]
       interval: 10s
       timeout: 5s
@@ -40,22 +40,20 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile.ui
+      dockerfile: docker/Dockerfile.ui
     environment:
       NODE_ENV: production
-      DEMO_MODE: offline
-      LIVE_ACCESS_APPROVED: "false"
-      LIVE_UI_ENABLED: "false"
+      DEMO_MODE: "${DEMO_MODE:-offline}"
+      LIVE_ACCESS_APPROVED: "${LIVE_ACCESS_APPROVED:-false}"
+      LIVE_UI_ENABLED: "${LIVE_UI_ENABLED:-false}"
       AI_GATEWAY_BASE_URL: ${AI_GATEWAY_BASE_URL:-}
       AI_GATEWAY_API_KEY: ${AI_GATEWAY_API_KEY:-}
       AI_GATEWAY_MODEL: ${AI_GATEWAY_MODEL:-}
       AI_GATEWAY_TIMEOUT_MS: ${AI_GATEWAY_TIMEOUT_MS:-}
-      AI_GATEWAY_REQUEST_BUDGET: ${AI_GATEWAY_REQUEST_BUDGET:-}
       AI_GATEWAY_JEV_URL: ${AI_GATEWAY_JEV_URL:-}
       AI_GATEWAY_JEV_API_KEY: ${AI_GATEWAY_JEV_API_KEY:-}
       AI_GATEWAY_JEV_MODEL: ${AI_GATEWAY_JEV_MODEL:-}
       AI_GATEWAY_JEV_TIMEOUT_MS: ${AI_GATEWAY_JEV_TIMEOUT_MS:-}
-      AI_GATEWAY_JEV_ATTEMPT_BUDGET: ${AI_GATEWAY_JEV_ATTEMPT_BUDGET:-}
       MCP_CUSTOMER_URL: ${MCP_CUSTOMER_URL:-}
       MCP_PRODUCT_URL: ${MCP_PRODUCT_URL:-}
       MCP_APPLICATION_URL: ${MCP_APPLICATION_URL:-}
@@ -63,7 +61,6 @@ services:
       MCP_POLICY_URL: ${MCP_POLICY_URL:-}
       MCP_API_KEY: ${MCP_API_KEY:-}
       MCP_TIMEOUT_MS: ${MCP_TIMEOUT_MS:-}
-      MCP_TOOL_INVOCATION_BUDGET: ${MCP_TOOL_INVOCATION_BUDGET:-}
     ports:
       - "127.0.0.1:${WEB_HOST_PORT:-3000}:3000"
     depends_on:
@@ -79,7 +76,7 @@ services:
     <<: &insurance-api
       build:
         context: ../kong-api-bundle-insurance
-        dockerfile: ../ai-gateway-jev-insurance-demo/Dockerfile.api
+        dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
         args:
           SERVICE: product
       expose: ["8000"]
@@ -88,28 +85,28 @@ services:
     <<: *insurance-api
     build:
       context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/Dockerfile.api
+      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
       args:
         SERVICE: customer
   application-api:
     <<: *insurance-api
     build:
       context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/Dockerfile.api
+      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
       args:
         SERVICE: application
   policy-api:
     <<: *insurance-api
     build:
       context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/Dockerfile.api
+      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
       args:
         SERVICE: policy
   claim-api:
     <<: *insurance-api
     build:
       context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/Dockerfile.api
+      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
       args:
         SERVICE: claim
 

@@ -3,9 +3,9 @@ import { caseLabels } from "./ja-display";
 
 export type OfflineFailure = "none" | "missing-facts" | "jev-failure" | "supplement-failure";
 
-export function createOfflinePreview(caseId: CaseId, comparison: boolean, failure: OfflineFailure) {
+export function createOfflinePreview(caseId: CaseId, failure: OfflineFailure) {
   const scenario = scenarios[caseId];
-  const inquiry = comparison ? scenario.comparisonInquiry : scenario.inquiry;
+  const inquiry = scenario.inquiry;
   const facts = structuredClone(scenario.facts);
   if (failure === "missing-facts") delete facts.product;
   const decision = failure === "missing-facts" || failure === "jev-failure"
@@ -26,7 +26,7 @@ export function createOfflinePreview(caseId: CaseId, comparison: boolean, failur
     userStatement: { text: inquiry, source: "user-provided synthetic fixture", verified: false },
     apiFacts: {
       source: "offline_fixture" as const,
-      reference: comparison ? "parent_snapshot fixture" : "synthetic fixture records",
+      reference: "synthetic fixture records",
       uniqueGetCount: 0,
       facts,
       sourceHash: `fixture-${caseId.toLowerCase()}-v1`,
@@ -38,10 +38,9 @@ export function createOfflinePreview(caseId: CaseId, comparison: boolean, failur
       invocationCount: 0,
       receipts: scenario.toolOrder.map((tool) => ({ tool, status: "fixture_plan_only" as const, source: "offline_fixture" as const, actor: "fixture" as const })),
     },
-    jevCard: decision ? { label: "OFFLINE FIXTURE / Jev未実行", criteriaVersion: "insurance-intake-v1", ...decision } : null,
+    jevCard: decision ? { label: "OFFLINE FIXTURE / Jev未実行", criteriaVersion: "insurance-intake-v2", ...decision } : null,
     error: failure === "jev-failure" ? "オフラインサンプル：Jev判断に失敗した状態です。代替スコアは表示していません。" : null,
     supplement,
-    comparison: { enabled: comparison, source: comparison ? "parent_snapshot fixture" : null, liveGetCount: 0, factsHashUnchanged: comparison },
     evidenceSections: ["問い合わせ", "投影済みAPI事実", "ホスト判断基準／Jev結果", "LLM補足"],
   };
 }

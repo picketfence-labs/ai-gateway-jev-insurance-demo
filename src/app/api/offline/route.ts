@@ -9,11 +9,10 @@ export async function POST(request: Request) {
     const body = await request.json() as Record<string, unknown>;
     const caseId = body.caseId;
     const failure = body.failure ?? "none";
-    const comparison = body.comparison === true;
     if (!isCaseId(caseId) || typeof failure !== "string" || !failures.has(failure as OfflineFailure)) {
       return NextResponse.json({ error: "Invalid offline fixture selection." }, { status: 400 });
     }
-    return NextResponse.json(createOfflinePreview(caseId, comparison, failure as OfflineFailure), {
+    return NextResponse.json(createOfflinePreview(caseId, failure as OfflineFailure), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch {

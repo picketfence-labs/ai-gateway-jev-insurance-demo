@@ -9,16 +9,14 @@ export async function submitDemoRequest(input: {
   caseId: CaseId;
   inquiry: string;
   failure: OfflineFailure;
-  comparison: boolean;
-  snapshotId?: string | null;
   requestId?: string;
   conversationHistory?: ConversationTurn[];
 }, fetcher: typeof fetch = fetch) {
   const live = input.mode === "live";
   if (live && !input.requestId) throw new Error("A stable live request ID is required.");
   const body = live
-    ? { caseId: input.caseId, inquiry: input.inquiry, comparison: input.comparison, snapshotId: input.snapshotId ?? undefined, requestId: input.requestId, conversationHistory: input.conversationHistory ?? [] }
-    : { caseId: input.caseId, failure: input.failure, comparison: input.comparison };
+    ? { caseId: input.caseId, inquiry: input.inquiry, requestId: input.requestId, conversationHistory: input.conversationHistory ?? [] }
+    : { caseId: input.caseId, failure: input.failure };
   return fetcher(live ? "/api/live" : "/api/offline", {
     method: "POST",
     headers: { "content-type": "application/json" },

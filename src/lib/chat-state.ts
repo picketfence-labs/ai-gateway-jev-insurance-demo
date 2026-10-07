@@ -5,10 +5,10 @@ import type { ConversationTurn } from "./conversation";
 const safeTools = new Set<Entity>(["customer", "product", "application", "claim", "policy"]);
 const safeStates = new Set(["completed", "decision_error", "ineligible", "unassessed", "completed_fixture"]);
 const safeReceiptStates = new Set(["completed", "failed", "rejected", "fixture_plan_only"]);
-const safeSources = new Set(["live_api", "parent_snapshot", "not_sent", "unavailable", "offline_fixture"]);
+const safeSources = new Set(["live_api", "not_sent", "unavailable", "offline_fixture"]);
 const safeActors = new Set(["llm", "host", "fixture"]);
 
-export type SafeToolReceipt = { tool: Entity; status: "completed" | "failed" | "rejected" | "fixture_plan_only"; source: "live_api" | "parent_snapshot" | "not_sent" | "unavailable" | "offline_fixture"; actor: "llm" | "host" | "fixture" };
+export type SafeToolReceipt = { tool: Entity; status: "completed" | "failed" | "rejected" | "fixture_plan_only"; source: "live_api" | "not_sent" | "unavailable" | "offline_fixture"; actor: "llm" | "host" | "fixture" };
 export type SafeToolStatus = { state: string; invocationCount: number; receipts: SafeToolReceipt[] };
 export type ChatReply = { label: string; text: string };
 export type ChatTurn<Evidence = unknown> = {
@@ -25,8 +25,8 @@ export function projectSafeToolStatus(state: unknown, candidate: unknown): SafeT
   const safeState = typeof state === "string" && safeStates.has(state) ? state : "unknown";
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return { state: safeState, invocationCount: 0, receipts: [] };
   const value = candidate as Record<string, unknown>;
-  const count = Number.isSafeInteger(value.invocationCount) && Number(value.invocationCount) >= 0 && Number(value.invocationCount) <= 8 ? Number(value.invocationCount) : 0;
-  const receipts = Array.isArray(value.receipts) ? value.receipts.slice(0, 8).flatMap((raw): SafeToolReceipt[] => {
+  const count = Number.isSafeInteger(value.invocationCount) && Number(value.invocationCount) >= 0 ? Number(value.invocationCount) : 0;
+  const receipts = Array.isArray(value.receipts) ? value.receipts.flatMap((raw): SafeToolReceipt[] => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
     const receipt = raw as Record<string, unknown>;
     const keys = Object.keys(receipt).sort();

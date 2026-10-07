@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "保険問い合わせデモの構成",
+    "output": "architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "web",
+      "type": "backend",
+      "label": "デモWeb / Host",
+      "sublabel": "Next.js UI・台帳検証",
+      "pos": [
+        80,
+        330
+      ],
+      "size": [
+        180,
+        78
+      ]
+    },
+    {
+      "id": "dp",
+      "type": "cloud",
+      "label": "DP 2.2.0",
+      "sublabel": "設定同期先",
+      "pos": [
+        350,
+        180
+      ],
+      "size": [
+        180,
+        78
+      ]
+    },
+    {
+      "id": "keyauth",
+      "type": "security",
+      "label": "key-auth",
+      "sublabel": "受信認証plugin",
+      "pos": [
+        350,
+        330
+      ],
+      "size": [
+        180,
+        78
+      ]
+    },
+    {
+      "id": "normal_plugin",
+      "type": "backend",
+      "label": "AI Proxy Advanced",
+      "sublabel": "通常LLM / AI Modelに対応",
+      "pos": [
+        620,
+        180
+      ],
+      "size": [
+        240,
+        78
+      ],
+      "tag": "通常LLM用"
+    },
+    {
+      "id": "mcp_plugin",
+      "type": "backend",
+      "label": "AI MCP Proxy",
+      "sublabel": "AI MCP Serverに対応",
+      "pos": [
+        620,
+        330
+      ],
+      "size": [
+        240,
+        78
+      ],
+      "tag": "MCP用"
+    },
+    {
+      "id": "jev_plugin",
+      "type": "backend",
+      "label": "AI Proxy Advanced",
+      "sublabel": "native Jev / AI Modelに対応",
+      "pos": [
+        620,
+        480
+      ],
+      "size": [
+        240,
+        78
+      ],
+      "tag": "native Jev用"
+    },
+    {
+      "id": "api_services",
+      "type": "backend",
+      "label": "保険 REST API × 5",
+      "sublabel": "Customer / Product / Application / Claim / Policy",
+      "pos": [
+        990,
+        330
+      ],
+      "size": [
+        300,
+        84
+      ],
+      "tag": "Claim / Policy"
+    },
+    {
+      "id": "konnect_cp",
+      "type": "cloud",
+      "label": "Konnect CP",
+      "sublabel": "AI Model・MCP・認証を管理",
+      "pos": [
+        80,
+        40
+      ],
+      "size": [
+        230,
+        78
+      ]
+    },
+    {
+      "id": "gemini",
+      "type": "external",
+      "label": "Gemini 2.5 Flash",
+      "sublabel": "通常LLM",
+      "pos": [
+        1000,
+        20
+      ],
+      "size": [
+        200,
+        78
+      ]
+    },
+    {
+      "id": "typesafe_jev",
+      "type": "external",
+      "label": "TypeSafe / Jev",
+      "sublabel": "native decisions",
+      "pos": [
+        1000,
+        650
+      ],
+      "size": [
+        200,
+        78
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "ローカル Docker Compose",
+      "wraps": [
+        "web",
+        "dp",
+        "keyauth",
+        "normal_plugin",
+        "mcp_plugin",
+        "jev_plugin",
+        "api_services"
+      ],
+      "pad": 58
+    },
+    {
+      "kind": "security-group",
+      "label": "Kong AI Gateway 2.2 data plane",
+      "wraps": [
+        "dp",
+        "keyauth",
+        "normal_plugin",
+        "mcp_plugin",
+        "jev_plugin"
+      ],
+      "pad": 24
+    }
+  ],
+  "connections": [
+    {
+      "id": "web-auth",
+      "from": "web",
+      "to": "keyauth",
+      "label": "HTTP :8000"
+    },
+    {
+      "id": "cp-sync",
+      "from": "konnect_cp",
+      "to": "dp",
+      "label": "mTLS 設定同期",
+      "variant": "dashed"
+    },
+    {
+      "id": "auth-normal",
+      "from": "keyauth",
+      "to": "normal_plugin",
+      "label": "通常LLM",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          440,
+          290
+        ],
+        [
+          575,
+          290
+        ],
+        [
+          575,
+          219
+        ]
+      ],
+      "labelAt": [
+        575,
+        270
+      ]
+    },
+    {
+      "id": "normal-provider",
+      "from": "normal_plugin",
+      "to": "gemini",
+      "label": "推論",
+      "variant": "emphasis"
+    },
+    {
+      "id": "auth-mcp",
+      "from": "keyauth",
+      "to": "mcp_plugin",
+      "label": "MCP"
+    },
+    {
+      "id": "mcp-api",
+      "from": "mcp_plugin",
+      "to": "api_services",
+      "label": "詳細 GET",
+      "variant": "emphasis"
+    },
+    {
+      "id": "auth-jev",
+      "from": "keyauth",
+      "to": "jev_plugin",
+      "label": "native Jev",
+      "fromSide": "bottom",
+      "toSide": "left",
+      "via": [
+        [
+          440,
+          440
+        ],
+        [
+          575,
+          440
+        ],
+        [
+          575,
+          519
+        ]
+      ],
+      "labelAt": [
+        575,
+        475
+      ]
+    },
+    {
+      "id": "jev-provider",
+      "from": "jev_plugin",
+      "to": "typesafe_jev",
+      "label": "評価",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "3つの実行経路",
+      "items": [
+        "通常LLM / MCP / native Jevを別経路で処理。Jevの事実は当ターンのホスト台帳だけ。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "管理Entityとpluginを区別",
+      "items": [
+        "pluginは公式mapping上の対応機能。個別生成instance・handler traceは未観測。"
+      ]
+    }
+  ]
+}

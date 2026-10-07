@@ -1,10 +1,6 @@
-import type { CaseId, Entity } from "./scenarios";
+import { caseKeys, scenarios, type CaseId, type Entity } from "./scenarios";
 
-export const caseLabels: Record<CaseId, string> = {
-  S1: "S1 · 自動車保険の請求を審査中",
-  S2: "S2 · 申込みを審査中",
-  S3: "S3 · 火災保険金の支払後・入金確認",
-};
+export const caseLabels = Object.fromEntries(caseKeys.map((id) => [id, scenarios[id].title])) as Record<CaseId, string>;
 
 const entityLabels: Record<Entity, string> = {
   customer: "顧客",
@@ -53,12 +49,10 @@ const statusLabels: Record<string, string> = {
 
 const sourceLabels: Record<string, string> = {
   live_api: "API応答（現在ターン）",
-  parent_snapshot: "親スナップショット",
   not_sent: "未送信",
   unavailable: "利用不可",
   offline_fixture: "OFFLINE FIXTURE（オフライン用サンプル）",
   "synthetic fixture records": "合成サンプルデータ",
-  "parent_snapshot fixture": "親スナップショットのサンプル",
   "user-provided synthetic fixture": "利用者入力（合成サンプル）",
 };
 
@@ -173,11 +167,11 @@ export const localizedRubric = {
     ["policy_information", "保険契約の情報"],
     ["general_intake", "一般的な問い合わせ"],
   ] as const,
-  priorityInstructions: "問い合わせで明示された案内上の優先度だけを表します。客観的な緊急度、期限、サービス水準の約束ではありません。",
+  priorityInstructions: "現在の投影済み記録と問い合わせを照合し、現状説明に必要な追加確認の度合いを表します。真の緊急度や早期対応の約束ではありません。申告の差は確認済みの矛盾ではなく、支払額の差やnullだけで誤りとは判断しません。",
   priorityCriteria: [
-    ["0", "通常の状況確認・手続きに関する問い合わせ"],
-    ["1", "追加確認または申告内容との不一致"],
-    ["2", "早めに担当者と話したいという明示的な希望"],
+    ["0", "記録の範囲で説明でき、同じ項目への異議がない"],
+    ["1", "投影されない詳細または限定的な確認が必要"],
+    ["2", "同じ記録項目への異議が申告され、人による照合が必要"],
   ] as const,
   nextCheckInstructions: "推奨する確認事項を選びます。確認済みの事実や内部理由として提示しません。",
   nextCheckCriteria: [
@@ -197,6 +191,7 @@ export type DisplayDecisionField = {
   label: string;
   value: string;
   probabilities: { key: string; label: string; value: number }[];
+  mostSupported: { candidates: { key: string; label: string; value: number }[]; probability: number } | null;
   confidence: number | null;
   legend: { key: string; label: string }[];
 };
@@ -209,18 +204,38 @@ export type DisplayDecision = {
   warnings: string[];
 };
 
-function probabilityRows(kind: "desk" | "priority" | "next_check", value: unknown) {
+function probabilityRows(
+  kind: "desk" | "priority" | "next_check",
+  value: unknown,
+  legend: { key: string; label: string }[],
+) {
   if (!isRecord(value)) return [];
   return Object.entries(value).flatMap(([key, candidate]) => {
     if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < 0 || candidate > 1) return [];
-    const label = kind === "priority"
-      ? localizedRubric.priorityCriteria.find(([score]) => score === key)?.[1] ?? unknownValue(key)
-      : choiceLabel(kind, key);
+    const label = kind === "priority" ? legend.find((item) => item.key === key)?.label ?? unknownValue(key) : choiceLabel(kind, key);
     return [{ key, label, value: candidate }];
   });
 }
 
-const knownLegendValues: Record<string, string> = {
+function mostSupportedScore(value: unknown, legend: { key: string; label: string }[], version: string) {
+  if (version !== "insurance-intake-v2" || !isRecord(value)) return null;
+  const keys = ["0", "1", "2"];
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) return null;
+  const rows = keys.map((key) => {
+    const probability = value[key];
+    return typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
+      ? { key, label: legend.find((item) => item.key === key)?.label ?? unknownValue(key), value: probability }
+      : null;
+  });
+  if (rows.some((row) => row === null)) return null;
+  const validRows = rows as { key: string; label: string; value: number }[];
+  const probability = Math.max(...validRows.map((row) => row.value));
+  if (probability === 0) return null;
+  return { candidates: validRows.filter((row) => row.value === probability), probability };
+}
+
+const legacyPriorityCriteria = [["0", "通常の状況確認・手続きに関する問い合わせ"], ["1", "追加確認または申告内容との不一致"], ["2", "早めに担当者と話したいという明示的な希望"]] as const;
+const knownV1LegendValues: Record<string, string> = {
   ordinary: "通常の状況確認・手続きに関する問い合わせ",
   clarification: "追加確認または申告内容との不一致",
   "early contact": "早めに担当者と話したいという明示的な希望",
@@ -228,41 +243,57 @@ const knownLegendValues: Record<string, string> = {
   "additional clarification or reported mismatch": "追加確認または申告内容との不一致",
   "explicit wish for early human contact": "早めに担当者と話したいという明示的な希望",
 };
+const knownV2LegendValues: Record<string, string> = {
+  "the user explicitly disputes the same projected field or value and a human should compare that unresolved reported difference; not a verified error or urgency": "同じ記録項目への異議が申告され、人による照合が必要",
+  "a detail is not projected or a limited confirmation is needed, without an explicit dispute of the same recorded field or value": "投影されない詳細または限定的な確認が必要",
+  "exposed records support a narrow explanation of the queried field and no same-field disagreement is reported": "記録の範囲で説明でき、同じ項目への異議がない",
+};
 
-function displayAnswer(key: "desk" | "priority" | "next_check", answer: unknown, fixture: boolean): DisplayDecisionField {
+function displayAnswer(key: "desk" | "priority" | "next_check", answer: unknown, fixture: boolean, version: string): DisplayDecisionField {
   const record = isRecord(answer) ? answer : {};
-  const label = key === "desk" ? "案内先候補" : key === "priority" ? "案内上の優先度" : "次に確認すること";
+  const knownVersion = version === "insurance-intake-v1" || version === "insurance-intake-v2";
+  const label = key === "desk" ? "案内先候補" : key === "priority"
+    ? version === "insurance-intake-v2" ? "追加確認度" : version === "insurance-intake-v1" ? "案内上の優先度（旧v1）" : "スコア（基準版未確認）"
+    : "次に確認すること";
   const rawValue = isRecord(answer) ? key === "priority" ? record.score : record.choice : answer;
   const rawLegend = isRecord(record.legend) ? record.legend : null;
   const legend = key === "priority"
-    ? rawLegend
-      ? Object.entries(rawLegend).map(([score, text]) => {
-        if (typeof text !== "string") return { key: score, label: unknownValue(text) };
-        const prefix = `${score}: `;
-        const value = text.startsWith(prefix) ? text.slice(prefix.length) : text;
-        return { key: score, label: knownLegendValues[value] ?? unknownValue(text) };
-      })
-      : fixture ? localizedRubric.priorityCriteria.map(([score, text]) => ({ key: score, label: text })) : []
+      ? rawLegend
+        ? Object.entries(rawLegend).map(([score, text]) => {
+          if (typeof text !== "string") return { key: score, label: unknownValue(text) };
+          const prefix = `${score}: `;
+          const legendValue = knownVersion && text.startsWith(prefix) ? text.slice(prefix.length) : text;
+          const knownLabels = version === "insurance-intake-v1" ? knownV1LegendValues
+            : version === "insurance-intake-v2" ? knownV2LegendValues : null;
+          return { key: score, label: knownLabels ? knownLabels[legendValue] ?? unknownValue(text) : `基準版未確認の原文: ${text}` };
+        })
+      : fixture && knownVersion
+        ? (version === "insurance-intake-v2" ? localizedRubric.priorityCriteria : legacyPriorityCriteria).map(([score, text]) => ({ key: score, label: text }))
+        : []
     : [];
   let value: string;
   if (key === "priority") {
     if (typeof rawValue !== "number" || !Number.isFinite(rawValue) || rawValue < 0 || rawValue > 2) value = unknownValue(rawValue);
     else {
-      const exact = Number.isInteger(rawValue) ? legend.find((entry) => entry.key === String(rawValue))?.label : undefined;
-      value = exact ? `${rawValue} / 2 · ${exact}` : `${rawValue} / 2（連続スコア。段階ラベルは付与していません）`;
+      value = version === "insurance-intake-v2"
+        ? `${rawValue} / 2`
+        : version === "insurance-intake-v1"
+          ? `${rawValue} / 2（連続スコア。段階ラベルは付与していません）`
+          : `${rawValue} / 2（基準版未確認。段階解釈はしていません）`;
     }
   } else value = choiceLabel(key, rawValue);
   return {
     key,
     label,
     value,
-    probabilities: probabilityRows(key, record.probabilities),
+    probabilities: probabilityRows(key, record.probabilities, legend),
+    mostSupported: key === "priority" ? mostSupportedScore(record.probabilities, legend, version) : null,
     confidence: typeof record.confidence === "number" && Number.isFinite(record.confidence) && record.confidence >= 0 && record.confidence <= 1 ? record.confidence : null,
     legend,
   };
 }
 
-export function summarizeDecision(value: unknown): DisplayDecision | null {
+export function summarizeDecision(value: unknown, version = "unknown"): DisplayDecision | null {
   if (!isRecord(value)) return null;
   const nativeAnswers = isRecord(value.answers) ? value.answers : null;
   const fixtureAnswers = !nativeAnswers && ["desk", "priority", "next_check"].every((key) => key in value) ? value : null;
@@ -278,7 +309,7 @@ export function summarizeDecision(value: unknown): DisplayDecision | null {
     : [];
   return {
     kind: nativeAnswers ? "actual" : "fixture",
-    fields: ["desk", "priority", "next_check"].map((key) => displayAnswer(key as DisplayDecisionField["key"], answers[key], !!fixtureAnswers)) as DisplayDecisionField[],
+    fields: ["desk", "priority", "next_check"].map((key) => displayAnswer(key as DisplayDecisionField["key"], answers[key], !!fixtureAnswers, version)) as DisplayDecisionField[],
     model,
     usage,
     warnings,
@@ -287,7 +318,7 @@ export function summarizeDecision(value: unknown): DisplayDecision | null {
 
 export function displayWarning(value: string): string {
   if (/^desk probabilities sum differs from one/.test(value)) return "案内先候補の選択確率の合計に差があります。原値は補正していません。";
-  if (/^priority probabilities sum differs from one/.test(value)) return "優先度候補の選択確率の合計に差があります。原値は補正していません。";
+  if (/^priority probabilities sum differs from one/.test(value)) return "スコア候補の選択確率の合計に差があります。原値は補正していません。";
   if (/^next_check probabilities sum differs from one/.test(value)) return "次の確認候補の選択確率の合計に差があります。原値は補正していません。";
   return `未対応の警告（原値: ${value}）`;
 }

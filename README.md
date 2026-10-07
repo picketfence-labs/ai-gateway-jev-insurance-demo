@@ -1,91 +1,66 @@
-# AI Gateway and Jev insurance inquiry demo
+# Kong AI Gateway 2.2 × Jev — 保険問い合わせデモ
 
-This private repository contains an offline-first demo scaffold for a conversational insurance inquiry. The Japanese-language UI preserves the normal LLM agent, scoped MCP tool wrappers, host ledger, native Jev request boundary, and separate LLM supplement. The default UI uses synthetic fixtures and makes no upstream business API, LLM, MCP, or Jev calls. The live path remains locked unless its server-side mode, approval, UI-enable flag, and required configuration all validate. No live integration has been tested.
+10件の合成ケースで、問い合わせ内容と保険記録を照らし合わせる会話デモです。通常のLLMがKong AI Gateway経由で読み取り専用MCPツールを選び、ホストが取得事実を検証してTypeSafeのJevへ渡します。画面では、記録、Jevの判断、別のLLM補足を分けて確認できます。
 
-**Delivery boundary:** the local Japanese UI appends chat turns and lets the user select one turn’s evidence; historical evidence cards are never combined. For a live request, only one prior same-case live turn plus the current inquiry may be sent to the normal agent as unverified conversation context. Jev receives only the current inquiry and current-turn ledger. Offline assistant text/tool plans are fixtures, not model output or executed tools. User-facing choice/status/source/rubric summaries are Japanese display mappings; native values and raw evidence remain unchanged and are available in collapsed JSON details. Realtime conversational streaming and message-part rendering remain unimplemented; no live integration has been tested.
+このUIは日本語のライブ実行用です。オフラインfixtureは内部テストだけに使います。実在する顧客情報や秘密を入力しないでください。
 
-This demo is not an underwriting, payment eligibility, customer authentication, or service commitment system.
+## 画面例
 
-## Read before changing the demo
+![合成ケースを選び、日本語の問い合わせを入力する画面例](resources/screenshots/input-screen.png)
 
-1. [Design brief](docs/design-brief.md) describes scope, scenarios, and trust boundaries.
-2. [Decision record](docs/decisions/0001-agent-and-host-decision-boundary.md) records the agent and host responsibilities.
-3. [Test plan](docs/test-plan.md) lists implementation checks, live-only evidence, and [minimum live preparation inputs](docs/test-plan.md#minimum-live-preparation-inputs); preparation is not live-access approval.
+*入力画面の例です。実際の接続状態やモデルの回答品質を証明する画像ではありません。*
 
-4. [Work item #1](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/issues/1) is the approved offline implementation contract; see the [local copy](docs/issue-draft.md).
-5. [Troubleshooting log](docs/troubleshooting-log.md) records implementation observations and check evidence.
+![Jevの3項目と最多支持、平均スコア、自信を表示する結果画面例](resources/screenshots/jev-result.png)
 
-## Local Compose scaffold
+*結果画面の例です。画面表示は実験証拠や保険上の判断ではありません。*
 
-`compose.yaml` describes the local AI Gateway 2.2 DP, this UI app, and five
-internal-only insurance API containers. It defaults to offline mode and does
-not create Konnect AI Model/provider entities or enable live access. Read the
-[Compose owner-input and safety notes](docs/ai-gateway-compose.md) before
-preparing a local `.env`. The DP hosts/certificates, model aliases and routes,
-provider/auth setup, Jev native endpoint, and MCP routes remain owner TODOs.
+## 何が起きるか
 
-The only Compose check performed for this scaffold is the non-daemon static
-configuration validation below; it does not build or start containers and does
-not verify Konnect or upstream connectivity:
+![Kong AI Gateway、通常LLM、MCP保険API、ホスト台帳、Jevの関係](resources/architecture/architecture.png)
 
-```sh
-docker compose --env-file .env.example config --quiet
-```
+*通常LLMはMCPツールを選び、ホストは当ターンの事実を検証してからJevを呼びます。Jevの後のLLM補足は別表示です。*
 
-The existing GitHub Actions workflow runs on pushes and pull requests with
-Node.js 22 and live approval flags disabled; it runs lint, typecheck, 28 unit
-tests, secret scanning, and a production build. These checks do not validate
-the Compose images or live integrations; see [test plan](docs/test-plan.md).
+図の元データと参照根拠は[アーキテクチャ資料](resources/architecture/README.md)を参照してください。
 
-## Run the offline UI
+1. **問い合わせ**: 利用者が合成ケースを選び、問い合わせを入力します。問い合わせ文から顧客を検索することはありません。
+2. **通常LLM**: 通常LLMはKong AI Gateway 2.2を通り、許可されたMCPの詳細取得ツールを選びます。正常に応答した後に必須事実が足りない場合だけ、ホストが不足分を取得することがあります。LLMが失敗した場合、ホストは補完せず評価を止めます。
+3. **MCP保険API**: Customer、Product、Application、Claim、Policyの5種類から、許可されたGET詳細操作だけを使います。サーバーは生のAPI応答を投影し、許可された項目だけをLLM SDKへ返します。
+4. **ホスト台帳とJev**: ホストは今回のターンで取得した型・ID・参照関係を検証します。必要な事実が揃ったターンだけ、現在の問い合わせとIDを除いた投影事実をTypeSafeのネイティブ形式でJevへ送り、3項目を評価します。JevはLLMのツールではありません。
+5. **LLM補足**: Jevの結果が有効な場合、通常LLMがツールを使わずに補足を生成することがあります。補足はJevの結果を書き換えません。
 
-Use Node.js 22 and npm. From the repository root, install the pinned dependencies and start the local UI:
+## 画面で確認するもの
 
-```sh
-npm ci --legacy-peer-deps --no-audit --no-fund
-```
+- 利用者の申告と、当ターンに取得した保険記録
+- 取得元、許可された参照関係、LLMまたはホストが行った取得操作
+- 判断基準の版と3項目の定義
+- Jevが返した受付候補、追加確認度、次に確認すること、各確率と自信
+- Jevとは別に表示するLLM補足
 
-```sh
-NEXT_TELEMETRY_DISABLED=1 npm run dev
-```
+v2の「追加確認度」は0〜2の連続した平均スコアです。最多支持の段階、平均スコア、Jevが返した「Jev回答の自信」は別の値です。詳細と各表示の読み方は[Chat UIガイド](Chat%20UI.md)を参照してください。
 
-Open `http://127.0.0.1:3000`. The default OFFLINE FIXTURE mode shows three synthetic cases, comparison fixtures, and error fixtures. It does not call external services. Do not enter real customer data or secrets.
+## このデモで行わないこと
 
-## Run checks
+- 保険引受、補償範囲の確定、支払可否、本人確認、契約有効性の判定
+- リスト検索、Simulation、書き込み、実際の担当部署への割当
+- 実在する個人情報、実際の健康情報、口座情報、認証情報の送信
+- 失敗したJev呼び出しを成功結果へ置き換えること
 
-```sh
-npm run lint
-```
+「支払済」は銀行口座への入金を確認した意味ではありません。請求額と支払記録額の差だけで不足払いと判断せず、未記録の`null`を0へ変換しません。申告上の差は、記録の誤りや真の矛盾が確認されたことを意味しません。
 
-```sh
-npm run typecheck
-```
+## 実行状態と制約
 
-```sh
-npm test
-```
+現在の受入構成では、Kong AI Gateway 2.2で管理する通常AI ModelにGemini 2.5 Flash、別のJev用AI ModelにTypeSafeネイティブ`decisions`を使用します。どちらも公式mappingではAI Proxy Advancedに対応します。この構成の受入は、個別リクエストのwire trace、全10ケースの動作、回答品質を証明するものではありません。過去のS1ライブ記録はv1基準の履歴として[Compose実行記録](docs/ai-gateway-compose.md)に残っています。現行のv2基準や追加確認度をその実行結果で評価し直さないでください。
 
-```sh
-npm run secret-scan
-```
+ライブ送信はモデル、MCP、Jevへの実通信と費用が発生し得ます。設定が`ready`でも、上流の疎通や判断品質を確認したことにはなりません。合成データで使用し、送信前に利用するAPIの費用と認証設定を確認してください。起動手順は[INSTRUCTIONS.md](INSTRUCTIONS.md)、ケースごとの入力と期待方向は[TEST.md](TEST.md)を参照してください。
 
-```sh
-NEXT_TELEMETRY_DISABLED=1 npm run build
-```
+リアルタイムストリーミングとメッセージ部品ごとの描画は未実装です。プロセス再起動後や複数インスタンス間の会話・再送保証もありません。呼び出し回数のUI quotaや金額上限はありません。
 
-Latest checks before the Japanese UI delta passed: lint, typecheck, 27 unit tests, secret scan with zero findings, production build, independent review, and chat-specific localhost smoke. Current localization checks pass lint, typecheck, 28 unit tests, secret scan (38 text files, zero findings), production build, independent delta review, and Japanese localhost browser confirmation. See [browser evidence](docs/evidence/browser-smoke.md). Passing offline checks do not verify Gateway, MCP, model, or Jev connectivity.
+## 読む順番
 
-## Demo boundaries
+1. [INSTRUCTIONS.md](INSTRUCTIONS.md): 必要条件と安全な起動手順
+2. [Chat UI.md](Chat%20UI.md): 操作、ターン、証拠、スコアと確率の見方
+3. [TEST.md](TEST.md): 10ケースの入力全文、期待方向、比較手順
+4. [設計方針](docs/design-brief.md)と[検証計画](docs/test-plan.md): 現行仕様と検証範囲
+5. [ADR 0001](docs/decisions/0001-agent-and-host-decision-boundary.md)と[ADR 0002](docs/decisions/0002-fresh-turns-and-contextual-intake-v2.md): 設計判断
 
-- Customer, Product, Application, Claim, and Policy support only approved GET-detail operations. Simulation, list, search, and write tools are out of scope.
-- The normal LLM selects MCP tools. Host code validates a complete, scoped ledger and projects responses before returning tool results to the SDK.
-- Jev receives host-built, ID-free JSON-string state through the TypeSafe-native request shape. The UI keeps an actual parsed Jev response separate from the LLM supplement.
-- Comparisons read an in-process, server-held projected snapshot. A missing or out-of-scope snapshot never falls back to a live business GET.
-- Request replay protection and snapshots are process-local. Restarting the process or using multiple instances does not provide durable idempotency or shared state.
-- Offline cards are explicitly marked as fixtures. They are not model output, API results, or Jev decisions.
-- The live agent may receive only the most recent completed same-case live user/assistant turn plus the current inquiry (two user turns total). This prior dialogue is unverified context, is length-checked, and cannot satisfy facts; raw tool payloads are never placed in conversation history. Case or mode changes clear the chat, selection, snapshots, and results.
-- UI tool receipts expose only allowlisted tool name, safe status, source, and count. Offline tool plans are explicitly not executed. The UI does not implement streaming.
-
-The normal LLM route through Kong AI Gateway 2.2 is approved; direct provider calls are out of scope. One normal AI Model with Gemini and GPT/OpenAI targets is planned; exact model IDs, routing policy, provider credentials, Gateway configuration, and end-to-end tool behavior remain unverified owner inputs. Live calls, credentials, Konnect changes, paid calls, and public hosting are not approved.
-
-Public references: [Chat UI](https://github.com/picketfence-labs/konnect-code-mode-mcp), [insurance APIs](https://github.com/picketfence-labs/kong-api-bundle-insurance).
+作業履歴は[トラブルシューティング記録](docs/troubleshooting-log.md)、過去の画面検証は[ブラウザー証拠](docs/evidence/browser-smoke.md)、作業項目のローカル記録は[Issue #1の記録](docs/issue-draft.md)を参照してください。

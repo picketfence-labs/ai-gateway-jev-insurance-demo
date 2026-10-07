@@ -1,422 +1,171 @@
-# Local Compose boundary
+# ローカルCompose構成と検証記録
 
-`compose.yaml` is a local topology template for a Konnect-managed AI Gateway 2.2
-data plane, this Next.js app, and five private insurance API containers. It does
-not create or configure Konnect entities. `DEMO_MODE=offline` and the two live
-approval flags are pinned off in Compose; the `.invalid` DP endpoints are
-non-routable placeholders. The model and MCP URLs in `.env.example` are route
-candidates only and do not imply that those Konnect routes exist. Copy the
-template only to an ignored local `.env` when an owner supplies real values.
-Do not add certs, keys, provider credentials, or inbound API keys to Git.
+> **現在の構成は [INSTRUCTIONS.md](../INSTRUCTIONS.md) を正本として確認してください。** この文書の2026-10-06 日付付き確認は当時の実行・調査記録であり、現在のCompose起動・Konnect登録・推論成功を意味しません。比較ON／親スナップショット・3ケース・v1は過去の実装／検証記録です。
 
-## Latest accepted checkpoint: one live S1 insurance turn
+`compose.yaml` はKonnect管理のKong AI Gateway 2.2.0データプレーン、Next.jsアプリ、保険API 5サービスのローカル構成です。ComposeはKonnect EntityやControl Planeを作成しません。Webのliveフラグは `${VAR:-safe-default}` で、既定値は `offline` / `false` / `false` のままです。live値は承認後、明示したGit管理外env fileからのみ渡してください。`.env.example` の `.invalid` hostとroute名は接続先ではなく候補です。実証明書、provider credential、Inbound API keyをGitへ追加しないでください。
 
-On 2026-10-06, one fresh S1 browser submission completed the normal LLM/MCP,
-validated current-turn facts, three-question native Jev, and Japanese supplement
-flow. Bash date observations before submission and after completion were
-**12:23:17 and 12:24:11 JST**; these are checkpoints, not measured latency.
-The actual web image was
-`sha256:6c29a58e6bb23a25545345d70903c1d573fdabb75da208113442ac88098ea5ae`.
-It included auto tool choice, host completion, failed-receipt guard and actor UI.
-The two display-only fixes described below were made after this live run.
-The final source was then built without starting web or making inference calls:
-`sha256:6f0819924e9a6a632ef444081347e9c4887f8260f7ecd7978c8b943c2a0e5fec`.
-This final image is build-verified only, not another live-tested image.
+## 2026-10-07時点の構成と再現境界
 
-- The LLM selected all four required MCP tools. Receipts show **LLM 4 / host 0**,
-  with four current-turn business GETs: claim, customer, policy and product.
-  Host missing-fact completion was covered by offline S1/S2/S3 mocks, **not
-  exercised live**. S2/S3 live, live comparison and multi-turn live were not run.
-- [Projected facts](evidence/live-s1-a-projected-facts.json) contain the scoped
-  synthetic IDs and allowlisted fields. Customer projection contains only its
-  ID and record-found flag. The immutable [native card](evidence/live-s1-a-native-card.json)
-  records model `jev-1.13.0`, usage 745 input / 160 output tokens, desk
-  `claim_progress` (confidence 1), priority **1.24** (confidence **0**), and
-  next check `claim_progress` (confidence 0.85). Confidence zero is preserved;
-  the separate LLM supplement is an opinion, not a correction to Jev.
-- [Traffic projection](evidence/live-s1-a-checkpoint.json) covers 12:23:17 to
-  12:28:57 JST. DP logs show normal HTTP 200 x5, Jev HTTP 200 x1 and 14 successful
-  unclassified MCP protocol responses. API logs show one GET/200 per required
-  entity. These are observed responses, **not strict host reservations, wire
-  totals or billing counts**; protocol/discovery traffic is separate from the
-  four business GETs. Exact normal host reservation snapshots were not retained.
-  Configured host caps remained normal 7 / Jev 1 / MCP invocations 8.
-- The original live screenshots are [card](evidence/live-s1-a-card.png),
-  [card details](evidence/live-s1-a-card-details.png), and
-  [provenance and supplement](evidence/live-s1-a-provenance.png). Each is a
-  single viewport of the **same one turn**, not stitched tiles or three executions.
-  Raw response bodies, headers, secrets and raw customer records are not saved.
+- ComposeサービスはWeb、Kong AI Gateway `2.2.0`、Customer/Product/Application/Claim/Policyの5保険APIです。ホスト公開portはWeb `127.0.0.1:3000` とGateway `127.0.0.1:8000` のみで、Admin `8001` は公開しません。
+- 通常LLMはAI Proxy Advancedを介したGemini 2.5 Flash、Jevは分離したnative TypeSafe `decisions` 経路、MCPクライアントはKonnect AI MCP Server経路からAPI詳細を取得する設計です。RESTコンテナのみではAI MCP Serverを作成できません。
+- AI Model、AI Model Provider、AI MCP Server、AI Auth Strategy、AI ConsumerはKonnect側の管理Entityです。[公式Entity mapping](https://developer.konghq.com/ai-gateway/ai-gateway-v2-concepts/)では、AI Gateway 2.xが対応するGateway内部primitiveをプロビジョニングします。これは利用者がlegacy pluginを手動設定することや、特定generated instanceのtraceを観測したことを意味しません。[構成図とsource mapping](../resources/architecture/README.md)に対応関係と証拠境界を記載しています。
+- 既存デモは外部Konnect US環境を参照する構成ですが、新規Control Planeの作成・登録・有効性をこの作業で検証していません。Gatewayの `kong health` はプロセス確認でありKonnect接続の証明ではありません。新規利用者は自身のOwner指定regionを確認し、`.env.example`のplaceholderでは外部接続できないこと、Owner承認なしに起動・モデルPOSTを行わないことに注意してください。
+- 現在の10ケース・毎ターン取得・追加確認度の仕様は[ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md)と[TEST.md](../TEST.md)を参照してください。ユーザー向け再現手順、clone ref、CLIの使用境界は[初回セットアップ手順](../INSTRUCTIONS.md)にあります。
 
-The later display-only changes label live API evidence as a current-turn response
-and translate the known same-key-prefixed priority legend. Unknown legends retain
-raw-value fallback. Native JSON, score, confidence, probabilities and model are
-unchanged. [Saved-response display](evidence/live-s1-a-saved-response-display.png)
-is a **local static replay**, using the current `summarizeDecision` and
-`displaySource` functions with the saved native card. It is not the live Next.js
-page, a new live result, or another inference. Its banner makes that distinction.
+以下の日付付き確認は、2026-10-06までの各時点で記録した履歴です。イメージdigest、readiness値、Entity作成、接続結果を今日の実行結果として再利用しないでください。
 
-The own web service stopped at **12:28:57 JST**. DP and five APIs remain retained;
-tracked live defaults are still off. At the 19:02 restart, retained DP logs since
-that stop contained zero normal/Jev route mentions; this is not a billing or full
-wire guarantee. The temporary replay-only loopback server also stopped after
-verification. No new paid calls followed the S1 run. Actual monetary cost is
-unknown, not zero. Official AI Model to AI Proxy Advanced mapping and actual
-native Jev traffic are confirmed; individual generated plugin association and
-handler execution remain unobserved, as detailed in the earlier smoke section.
+## 過去の確認 — 2026-10-06 23:05 JSTのWeb更新
 
-Final offline checks: lint, typecheck, **56 unit tests**, secret scan (58 files,
-zero findings after final evidence additions), Next production build and diff
-check passed. Independent review accepted the acquisition contract and final
-mapping delta. Process feedback: the interruption delayed saving this accepted
-result; on resume, runtime observations, original live evidence and offline-only
-display changes were kept separate. No new inference was used for verification.
-Earlier checkpoint sections below are historical, not the current acceptance state.
+当時のweb image: `sha256:47922edb386865256af20bdccc5d7a2de637e3b44b6a509567bfe21b3e0bc7f4`。
+2026-10-06 **23:05:09 JST** のbash date確認時点で、承認済みの既存ローカル設定を再利用し、webのみを `--no-deps --no-build --force-recreate` で再作成した。
+既存data planeと5 APIはcontainer ID・image・開始時刻が更新前と一致した。
+秘密設定の本文や展開値は出力していない。GET /はHTTP 200、10個の日本語ケース選択名、比較checkboxなしを確認。
+GET /api/live/readinessはHTTP 200、`ready: true` / `status: explicitly configured`。
+これは起動・画面・設定状態の証拠であり、API・MCP・通常LLM・Jevの新規実行や接続品質の証明ではない。今回の実モデルPOSTは0回。
 
-## Owner inputs before any runtime attempt
+lint、typecheck、77 unit tests、secret scan（61ファイル／検出0）、production build、Docker web build、diff checkが成功し、source/docsオフライン差分の独立レビューもPASS。
+[TEST.md](../TEST.md) の操作手順と [ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md) が現在のケース・取得・追加確認度の境界を示す。
+以下の古いimage、比較ON/OFF、3ケース、v1結果の記述は過去の検証記録として保持する。v1証拠は変更していない。
 
-- Konnect AI Gateway control-plane and telemetry host/SNI values, plus the DP
-  client cert/key paths. The Compose bind mounts are read-only and deliberately
-  fail if the supplied files do not exist.
-- The static normal-model payload proposes Gemini and GPT/OpenAI targets,
-  alias `insurance-normal`, and round-robin. The created model currently uses
-  Gemini only; no OpenAI provider/target was configured because an OpenAI key
-  was unavailable. Gemini 2.5 Flash and the S1 tool flow were observed in the
-  latest checkpoint below; GPT remains unverified. Inbound app auth uses the
-  fixed `apikey` header described below.
-  `AI_GATEWAY_BASE_URL` and `AI_GATEWAY_MODEL` in `.env.example` are matching
-  route/alias candidates, not live values.
-- A separate native TypeSafe AI Model for Jev, configured for the `decisions`
-  capability, `formats: [{ type: typesafe }]`, and native `/v1/systemone`.
-  The sample target `jev-latest` is an unpinned baseline candidate only. Do not
-  route this traffic through Chat Completions or the normal LLM model. The
-  candidate route/model values in `.env.example` must match owner-created
-  entities; provider and inbound credentials remain owner inputs.
-- Five Konnect AI MCP Server `conversion-listener` entities through this same
-  DP, one detail GET each. The candidate `MCP_*_URL` values correspond to the
-  route prefixes in `config/konnect-ai-gateway/mcp-*.json`; they are not live
-  servers. Starting REST APIs does not convert them to MCP servers. Use
-  AI MCP Server entities, not the legacy `ai-mcp-proxy` plugin.
-- Inbound application authentication uses separate AI Consumer credentials for
-  normal Gateway, native Jev, and MCP requests. The app sends each key only in
-  the fixed `apikey` header; provider credentials are separate outbound secrets
-  (Gemini `x-goog-api-key`, TypeSafe `Authorization: Bearer ...`). The key-auth
-  strategy disables query/body key transport and hides credentials. A local
-  fetch adapter removes SDK `Authorization` and only sends a key to its exact
-  configured Gateway origin and route; redirects are rejected. These separate
-  keys share one strategy and do not provide per-route authorization isolation.
-- Owner-approved request budgets/timeouts. The normal AI SDK calls set
-  `maxRetries: 0`, and Jev host fetch has one attempt, but these do not disable
-  AI Gateway data-plane retries. Both model configurations have since read back
-  with `config.balancer.retries: 0` and `failover_criteria: []`; this is config
-  evidence, not proof of runtime retry behavior or a single upstream attempt.
-  MCP invocation counts likewise do not prove a single upstream attempt.
-The static scaffold itself does not prove DP registration, Konnect connectivity,
-model readiness, or successful upstream traffic. See the latest authorized
-checkpoint below for resources created outside the scaffold. Kong's `kong health`
-check is process health only and cannot prove those conditions.
+## 過去の確認 — 2026-10-06 21:16 JSTのquota撤廃
 
-## Current acquisition behavior
+当時web imageは `sha256:cde72cf3a275cbc05be59ce026aa1128a6dd578034a1afc2a8ec058e8c69b006`。webのみの再作成は2026-10-06 **21:16:30 JST** のbash date時点で完了しました。DP/5APIは保持し、loopback `127.0.0.1:3000`、root HTTP200、readiness `ready: true` を確認しました。旧budget変数3名はtracked Compose/example、Git管理外local env/overlay、running web環境にありません（nameのみ投影、値非出力）。offline lint/typecheck/65tests/secret-scan60files0/Nextbuild/Dockerwebbuild/diffcheckがpass。独立reviewは反復turn、counter、registry境界をpassとしました。この修正のagent推論/API POSTは0。以前image/S1実証拠は履歴です。
 
-The normal LLM uses optional MCP tools (`toolChoice: auto`). Only after a
-successful normal-model completion may the host fetch still-missing required
-facts for the selected synthetic case, through the same scoped wrappers,
-projection, turn-local ledger, and existing budgets. It derives IDs only from
-the selected root and relationships in projected facts acquired this turn;
-successful GETs are reused, never repeated. These calls are disclosed before
-submission and shown in Japanese receipts as host/app evaluation preparation,
-not LLM tool calls. A normal LLM transport/SDK failure, scope/reference error,
-or incomplete acquisition stops before Jev; no host REST bypass or prior-turn
-fact is allowed. See [design brief](design-brief.md) and [ADR 0001](decisions/0001-agent-and-host-decision-boundary.md).
-The existing explicit trusted `parent_snapshot` same-facts comparison remains
-separate: zero live GETs and no live fallback, not facts inferred from conversation history.
+process全体のGateway/Jev/MCP budgetとturnごとのrequest/tool quota拒否を撤廃しました。旧環境変数3つは不要でComposeから注入しません。SDK acquisitionの6step停止、timeout（レビューlocal値normal20s/Jev10s/MCP5s）、retry0、turnあたりJev1回、scope/projection/ledger検証、保持ID replay保護は維持します。counterは観測でbilling合計ではありません。registryは4,096件で古いcompleted responseをevictし、in-flightはevictしません。重複保護は保持IDのみ（evict済みID／restartは対象外）。
 
-## Konnect payloads and approval-gated stages
+2026-10-06 20:52:16〜21:00:21 JSTのread-only logは固定 `host_budget_exhausted`、process Jev予約1、failed-turn Jev予約0、application/customer receiptを含みました。case/request相関がなく、利用者が報告したclaim turnとは断言できません。以前はprocess normal7/Jev1/MCP8で後続turnを止め得ました。診断／検査にmodel/API POSTは使用していません。以下の通信制限と証拠は過去のsingle-turn作業で現行runtime契約ではありません。この修正のagent有料呼出し0。
 
-The native JSON request-body candidates in
-[`config/konnect-ai-gateway/`](../config/konnect-ai-gateway/README.md) cover
-three providers, one normal Gemini/OpenAI multi-target AI Model, one separate
-TypeSafe Jev AI Model, one fixed MCP key-auth strategy, and five MCP Server
-entities. They are static owner-review samples, **not a
-kongctl/decK/Terraform bundle and not apply-ready**. There is no submission
-script. The OBO US region and Organization were safely confirmed; its control
-plane, IDs, credentials, and state were not reused. A dedicated AI Gateway and
-its resources are listed in the latest checkpoint below. Provider secrets were
-sent only to their dedicated new Konnect provider entities; inbound Consumer
-keys are held only in a new ignored local overlay, never in committed JSON.
+当時の比較OFFは新規取得、ONはserver保持の同case投影事実（10分寿命、32snapshot）を再利用し、詳細GET0でnormalLLM/Jev/supplementを再実行しました。snapshot読取とMCP discoveryは業務GETではありません。期限切れ／不足snapshotはfresh GETへfallbackせずfail closedし、会話textをledger補完に使いません。現行ではこの比較機能は撤廃済みです。
 
-The local `kongctl` 1.13.0 `explain` schema omits the `typesafe` provider enum,
-so it cannot validate the Jev provider template. The JSON parses locally; native
-Konnect API creation accepted the dedicated providers and normal model, but
-the Jev model request returned HTTP 400 (details below). No `kongctl` login,
-plan, or apply was used. Do not invent a `kongctl` resource or migrate the OBO
-Terraform/decK workflow to work around this mismatch.
+## 過去の確認 — UI改善（offline検証のみ）
 
-Model identifiers are documented candidates, not runtime evidence. Google
-lists `gemini-3.5-flash` as a stable model with function calling; OpenAI lists
-`gpt-4o` with Chat Completions and function calling. The AI Gateway Gemini
-provider accepts the OpenAI-compatible generation path, but this demo has not
-tested Gemini 3.5 Flash through the AI Gateway or the mixed-provider tool loop.
-OpenAI alias versus dated snapshot, provider account access, target weights,
-and operational routing remain owner choices. The TypeSafe candidate keeps its
-native `decisions` / string-state request and is not a Chat Completions route.
+当時UI imageは `sha256:db8e60ad2594dc22204e32bb6acec6c426b26e034837b70a78960f60d73fd517`。2026-10-06 **20:52:16 JST** のbash date時点でwebだけ再作成、DP/5APIを保持。loopback3000、root200、readiness200/readytrueを確認。[live-only初期画面](evidence/ui-refinement-live-only.png)をチャット未送信で開きました。build/UI/readiness証拠で新推論ではなく、この改善の**agent有料呼出し0**です。元S1 image/live証拠とは別です。offline lint/typecheck/64tests/secret-scan60files0/Nextbuild/Dockerwebbuild/diffcheckがpass、独立reviewは6component SSRと2producer回帰テストを確認しました。
 
-### Previously proposed stages (superseded by latest owner authorization)
+UIはlive requestのみでreadiness falseなら送信lock、fixture fallback／mode pickerはありません。case名は日本語、既知machine keyは主cardから除き、折りたたみcriteria/native JSONに保持。未知値fallbackは維持します。turnごとにinline証拠開示があり、長文reply/probability/criteria/技術JSONはlocal disclosureで参照できます。別turnを開くとnative HTML detailsで前の証拠を閉じます。
 
-The earlier proposal below required separate live approval and a known-price
-USD cap. On 2026-10-06 the owner explicitly authorized the dedicated US AI
-Gateway setup and a bounded S1 run, accepting the expected Jev charge; no
-monetary cap or cost guarantee was invented. At the 07:34 checkpoint the
-attempt was stopped at a Jev model-create HTTP 400; later progress is recorded
-in the latest checkpoint at the end of this document.
+source確認で成功 `supplementStatus: completed` が `reason` としても返りUIで汎用失敗にmapされることを見つけました。producerは成功reason nullと別supplement statusを返すよう修正。失敗supplementでも実Jev cardを保持し、補足失敗を明示、ineligible/decision-errorと区別します。再現可能source-level誤表示の説明で、所有者session応答の復元ではありません。表示JSONは厳密parseしたnative decisionでrawHTTP/API/Customer dataではなく、confidence0を含むnative値は不変です。
 
-0. **Static only:** zero live requests. Parse JSON and run offline tests/config
-   checks only.
-1. **DP registration/start:** the owner authorized one dedicated registration
-   and start attempt. Observe for up to 120 seconds, then stop if not healthy.
-   A local health result means process health only; reconnection or successful
-   Konnect registration is not guaranteed by one attempt.
-2. **One synthetic S1 claim turn:** the owner authorized one bounded turn and
-   accepted the expected Jev charge. Provider pricing and total cost remain
-   unknown; request limits do not create a monetary cap or cost guarantee.
-   Proposed maxima are 7 normal Gateway host generations (6 acquisition plus
-   at most 1 supplement), 1 Jev host request, and 8 app MCP tool invocations
-   (at most 4 unique business GETs expected for S1). Separately record 5 MCP
-   `client.tools()` discoveries and protocol/session handshakes; these are not
-   included in the current MCP invocation counter. Candidate per-call timeouts
-   are 20 seconds normal, 10 seconds Jev, 5 seconds MCP, with a requester
-   observation window of at most 5 minutes. That window is not an enforced
-   global request deadline. No token-output cap or monetary enforcement is
-   implemented, and these request counts cannot guarantee cost. Do not repeat
-   the turn. Any S2/S3 turn remains conditional on S1 success and is outside
-   this checkpoint.
+offline検査はproducer mock transportと実React SSRを含みます。[3turn画面](evidence/ui-refinement-three-turns.png)、[inline証拠](evidence/ui-refinement-inline-evidence.png)、[native JSON展開](evidence/ui-refinement-native-json.png)は保存S1 native応答とmock会話を使いました。bannerは保存応答renderであり3live実行／新推論でないと明示します。browserは最初のturnを開きJSON展開、2番目選択、閉じる操作を確認。別label付きmock pageでsupplement失敗/ineligible/decision-errorも検査し、[補足失敗](evidence/ui-refinement-supplement-failure.png)、[対象外](evidence/ui-refinement-ineligible.png)、[判定error](evidence/ui-refinement-decision-error.png)を保存しました。UI改善中agent model/API送信なし、新依存／UI framework追加なし。
 
-At the time of this checkpoint, owner authorization did not remove the HTTP 400
-stop. The later bounded diagnostic and configuration repair are recorded below.
+## 過去の確認 — 2026-10-06に受け入れたlive S1保険turn
 
-## Earlier live checkpoint — 2026-10-06 (07:34 JST snapshot)
+2026-10-06のfresh S1 browser送信1回は、normalLLM/MCP、当turn事実検証、nativeJev3質問、日本語補足まで完了しました。送信前／完了後bash dateは**12:23:17／12:24:11 JST**でlatency計測ではありません。実web imageは `sha256:6c29a58e6bb23a25545345d70903c1d573fdabb75da208113442ac88098ea5ae`。auto tool choice、host補完、failed-receipt guard、actor UIを含みます。以下表示のみ2修正はlive後です。最終sourceはweb起動／推論なしでbuildし `sha256:6f0819924e9a6a632ef444081347e9c4887f8260f7ecd7978c8b943c2a0e5fec`。build検証のみで追加live-tested imageではありません。
 
-At the 07:34 JST checkpoint (about 37 minutes into the authorized attempt), the
-dedicated US hybrid AI Gateway existed and its public DP certificate was
-registered. The DP container had not started; no model, MCP, Jev, or insurance
-API request was sent. Paid provider requests: **0**. Provider pricing and
-agent-level cost remain unknown; the owner accepted the expected Jev charge,
-but no monetary cap or cost guarantee is claimed.
+- LLMは必須MCP4toolを全て選択。receiptは **LLM4 / host0**、当turn業務GETはclaim/customer/policy/product各1です。host不足補完はoffline S1/S2/S3 mockで検査し**live未実行**。S2/S3 live、live比較、複数turn liveは未実施。
+- [投影事実](evidence/live-s1-a-projected-facts.json)はscope内合成IDとallowlist field。Customer投影はID/record-foundのみ。[不変native card](evidence/live-s1-a-native-card.json)はmodel `jev-1.13.0`、usage745input/160output、desk `claim_progress`（confidence1）、旧priority **1.24**（confidence **0**）、nextcheck `claim_progress`（0.85）。confidence0を保持し、別LLM補足は意見でJev訂正ではありません。
+- [通信投影](evidence/live-s1-a-checkpoint.json)は12:23:17〜12:28:57 JST。DPlogはnormal200×5、Jev200×1、未分類MCP protocol成功14、APIlogは必須entity各GET/200×1。観測応答で**厳密host予約／wire合計／billing countではなく**、protocol/discoveryは業務4GETと別。正確なnormal host予約snapshot未保持。当時capはnormal7/Jev1/MCP8。
+- 元live screenshotは[card](evidence/live-s1-a-card.png)、[詳細](evidence/live-s1-a-card-details.png)、[取得者と補足](evidence/live-s1-a-provenance.png)。各**同じ1turn**のsingle viewportでtile合成／3実行ではありません。raw response body/header/secret/raw Customerは未保存。
 
-The Gateway readback reported `min_runtime_version: 2.2` and
-`runtime_auto_upgrade: true`; whether auto-upgrade affects this self-managed
-image is unverified, and the container/runtime version was not observed. Its
-unique IDs and created resources are:
+後の表示修正はliveAPI証拠を当turn応答とlabelし、既知同key-prefix priority凡例を翻訳。未知凡例はraw fallback、nativeJSON/score/confidence/probabilities/modelは不変。[保存応答表示](evidence/live-s1-a-saved-response-display.png)は現 `summarizeDecision` / `displaySource` と保存cardによる**local static replay**で、live Next page／新live結果／追加推論ではありません。bannerで区別しています。
 
-| Resource | Name/title | ID | Result |
+own webは**12:28:57 JST**に停止、DP/5API保持、tracked live既定offでした。19:02再開時、停止以来保持DPlogのnormal/Jev route言及0ですがbilling/full-wire保証ではありません。一時replay-only loopback serverも検証後停止。S1後新有料呼出しなし、実費は不明で0ではありません。公式Model→Advanced mappingとnativeJev実通信は確認、個別generated plugin対応／handler実行は先のsmoke説明どおり未観測です。
+
+最終offline lint/typecheck/**56unit tests**/secret-scan58files0（最終証拠追加後）/Nextbuild/diffcheckがpass。独立reviewは取得契約と最終mapping差分を受入。中断により受入結果保存が遅れましたが再開時runtime観測、元live証拠、offline表示変更を分離し、新推論で検証しませんでした。以下は歴史で現行受入状態ではありません。
+
+## 2026-10-06時点のOwner input記録（履歴）
+
+- Konnect CP/telemetry host/SNI、DP cert/key path。Compose mountはread-onlyで、供給fileがなければ意図的に失敗します。
+- 静的通常ModelはGemini/GPT・OpenAI target、alias `insurance-normal`、round-robin候補。当時作成はGeminiのみでOpenAI keyなしのためOpenAI未設定。最新記録はGemini2.5とS1 tool経路を観測しGPT未検証。inbound認証は固定 `apikey`。`.env.example` の `AI_GATEWAY_BASE_URL` / `AI_GATEWAY_MODEL` は一致route/alias候補でlive値ではありません。
+- 別native TypeSafe Modelは `decisions`、`formats: [{ type: typesafe }]`、native `/v1/systemone`。`jev-latest` は版未固定候補で、ChatCompletionsや通常Modelへ通しません。env候補は所有者作成entityと一致が必要でprovider/inbound認証は所有者入力です。
+- 同DP経由5AI MCP Server `conversion-listener`、各詳細GET1。`MCP_*_URL` は `mcp-*.json` route候補でlive serverではありません。REST起動だけではMCPにならず、管理entityを作成し、2.xがAI MCP Proxy機能へmapします。legacy plugin手動設定／個別generated instance観測を主張しません。
+- normal/Jev/MCP受信は別AI Consumer credentialを固定 `apikey` headerだけで送信。provider秘密は別（Gemini `x-goog-api-key`、TypeSafe Bearer）。strategyはquery/body無効、credential非表示。local fetch adapterはSDK Authorizationを除き、完全一致Gateway origin/routeだけへkey送信、redirect拒否。別keyは1strategy共有でroute別認可分離ではありません。
+- 所有者承認timeout。normal SDK `maxRetries: 0`、Jev host1試行だけではDP retry無効を保証しません。後の両Model読取はbalancer retry0/failover空ですが設定証拠でruntime retry挙動／上流1試行証明ではありません。MCP invocation countも上流1試行を証明しません。
+
+静的scaffoldだけでDP登録／Konnect疎通／Model readiness／上流成功を証明せず、別途作成リソースは承認記録を参照します。`kong health` はprocess healthのみです。
+
+## 現行ソースの取得境界
+
+通常LLMは `toolChoice: auto` で任意のMCP toolを使います。正常なLLM応答後に必要事実が未取得なら、同じscope・projection・turn-local ledger・timeoutの範囲でhostが補完します。IDはこのターンで取得した事実内のrootとrelationshipからのみ導出し、成功済みGETは再利用します。前ターンのsnapshotや会話文から事実を補うことはありません。LLM通信失敗、scope/reference違反、事実取得不足はJev実行前に停止します。hostのREST bypassは許可されません。
+
+各ターンの取得と追加確認度の現行仕様は[design brief](design-brief.md)、[ADR 0001](decisions/0001-agent-and-host-decision-boundary.md)、[ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md)が正本です。旧 `parent_snapshot` 比較機能は撤廃済みで、後続の日付付き確認にあるsnapshot記述は過去仕様です。
+
+## Entity候補と読み取りCLIの境界
+
+[`config/konnect-ai-gateway/`](../config/konnect-ai-gateway/README.md) 内のJSONはowner review用request-body候補です。`kongctl`/decK/Terraformの宣言bundleでもApply-ready設定でもありません。新しい利用者のOrganization、Gateway ID、credentials、stateを含めず、この作業ではKonnect APIへのEntity作成・更新を行っていません。
+
+ローカル `kongctl` 1.13.0の `get ai-gateway` はbetaで、models、model-providers、mcp-serversの読取コマンドを持ちます。AI Auth Strategy用の直接get commandは確認しておらず、`identity-providers`は別Entityです。`kongctl explain ai_gateway_model_provider --output yaml` には `typesafe` enumが確認できません。TypeSafe候補は当該CLIスキーマで検証できるとは扱わず、架空のCLI resource名も使いません。承認後の実設定はKonnect UIか現行公式APIスキーマで所有者が実施します。各コマンド形状は[INSTRUCTIONS.md](../INSTRUCTIONS.md)、候補の用途は[Entity README](../config/konnect-ai-gateway/README.md)を参照してください。
+
+`model-normal.json` にあるGemini 3.5 FlashとOpenAIは未使用の静的候補です。文書化された通常経路のknown baselineはGemini 2.5 Flashで、OpenAIは実接続先ではありません。TypeSafe候補はnative `decisions` / string-state requestで、Chat Completions用ではありません。
+
+### 過去に提案された実行段階（後続checkpointで更新済み）
+
+当初の提案は別live承認と既知単価USD capを要件としました。2026-10-06に所有者は専用US AI Gateway準備と限定S1を明示承認し、想定Jev料金を了承。金額cap／費用保証は創作しません。07:34時点はJev create400で停止し、後の進捗を以下の時点記録に保存しています。
+
+0. **静的のみ:** live0。JSON parse、offline test/config検査だけ。
+1. **DP登録／起動:** 所有者は専用登録／起動1試行を承認。最大120秒観測しhealthyでなければ停止。local healthはprocessのみで再接続／Konnect登録成功の保証ではありません。
+2. **合成S1 claim1turn:** 所有者は限定1turnと想定Jev費用を承認。単価／総費用不明、request制限は金額capでありません。当時提案最大normal host7（取得6＋補足最大1）、Jevhost1、app MCP8（S1最大4unique業務GET想定）。5 MCP `client.tools()` discovery/protocol handshakeは別記録でMCP invocation counter外。候補timeout normal20/Jev10/MCP5秒、requester観測最大5分は強制global deadlineではありません。token output cap／金額強制なし、countで費用保証しません。同turn再試行しません。S2/S3はS1成功条件付きで当時範囲外。
+
+この時点で所有者承認はHTTP400停止を解除しませんでした。後の限定診断／設定修正を次節以降に記録します。
+
+## 過去のライブ確認 — 2026-10-06 07:34 JST時点
+
+07:34 JST（承認された試行開始から約37分）の確認では、専用US hybrid AI Gatewayが存在し、DPの公開証明書が登録されていました。DPコンテナは未起動で、モデル、MCP、Jev、保険APIへのリクエストは送信していません。有料providerリクエストは**0**です。provider料金とagent単位の費用は不明です。所有者は想定されるJev料金を了承しましたが、金額上限や費用保証を主張しません。
+
+Gateway読取結果は `min_runtime_version: 2.2`、`runtime_auto_upgrade: true` でした。自動更新がself-managedイメージへ影響するかは未検証で、コンテナ／runtime版も未観測でした。当時作成したリソースと固有IDは次のとおりです。新規構築では流用しません。
+
+| リソース | 名前 | ID | 当時の結果 |
 | --- | --- | --- | --- |
-| AI Gateway (hybrid) | `insurance-demo-live-20261006` | `3754a93c-fba3-4b95-adbb-b429816b431c` | Created, HTTP 201; configuration and telemetry endpoints present |
-| DP certificate | `insurance-demo-dp-20261006` | `dda4db4e-356e-4827-8b6f-a2087717bca9` | Public certificate registered, HTTP 201; private key stayed local |
-| Gemini provider | `insurance-demo-gemini-live` | `3458cfe7-6cf6-43ab-a2db-7c4c3c1bf06a` | Created, HTTP 201 |
-| TypeSafe provider | `insurance-demo-typesafe-live` | `b1beed46-1768-4339-873d-1c539abdef62` | Created, HTTP 201 |
-| AI Auth Strategy | `insurance-demo-live-key-auth` | `ac215e4b-b800-4e38-a5af-9e474d14a67b` | Fixed `apikey` header; query/body disabled; credentials hidden |
-| AI Consumer | `insurance-demo-local-app` | `6e2c6d16-0fc9-494b-abf4-2cb65f225e8b` | Created, HTTP 201 |
-| Consumer key credential | normal slot (local label) | `fd0f3840-8bc1-4924-8238-af7033abe318` | Created once; value is not recorded here |
-| Consumer key credential | Jev slot (local label) | `7abb48e5-4260-41ac-8c69-041c2ed367df` | Created once; value is not recorded here |
-| Consumer key credential | MCP slot (local label) | `a09bd2af-8c5f-442c-a801-6b1e3cfde5f6` | Created once; value is not recorded here |
-| Normal AI Model | `insurance-normal` | `c23d9df9-413d-4adc-92ca-72d42eb8e80d` | Created, HTTP 201; Gemini-only active target; retries `0`, failover `[]`, payload logging off |
+| AI Gateway (hybrid) | `insurance-demo-live-20261006` | `3754a93c-fba3-4b95-adbb-b429816b431c` | 作成HTTP201、設定／telemetry endpointあり |
+| DP証明書 | `insurance-demo-dp-20261006` | `dda4db4e-356e-4827-8b6f-a2087717bca9` | 公開証明書登録HTTP201、秘密鍵はlocalのみ |
+| Gemini provider | `insurance-demo-gemini-live` | `3458cfe7-6cf6-43ab-a2db-7c4c3c1bf06a` | 作成HTTP201 |
+| TypeSafe provider | `insurance-demo-typesafe-live` | `b1beed46-1768-4339-873d-1c539abdef62` | 作成HTTP201 |
+| AI Auth Strategy | `insurance-demo-live-key-auth` | `ac215e4b-b800-4e38-a5af-9e474d14a67b` | 固定 `apikey` header、query/body無効、credential非表示 |
+| AI Consumer | `insurance-demo-local-app` | `6e2c6d16-0fc9-494b-abf4-2cb65f225e8b` | 作成HTTP201 |
+| Consumer key credential | 通常slot（local名） | `fd0f3840-8bc1-4924-8238-af7033abe318` | 1回作成、値は記録しない |
+| Consumer key credential | Jev slot（local名） | `7abb48e5-4260-41ac-8c69-041c2ed367df` | 1回作成、値は記録しない |
+| Consumer key credential | MCP slot（local名） | `a09bd2af-8c5f-442c-a801-6b1e3cfde5f6` | 1回作成、値は記録しない |
+| 通常AI Model | `insurance-normal` | `c23d9df9-413d-4adc-92ca-72d42eb8e80d` | 作成HTTP201; Geminiのみactive、retry0/failover空/payload logging off |
 
-The normal model uses the Gemini target only for this attempt; an OpenAI
-provider/target was not created because no OpenAI key was available. The native
-TypeSafe Jev Model create request returned **HTTP 400**. A subsequent read-only
-model listing showed only `insurance-normal`; the Jev model was not created.
-The error response body was discarded by the safe caller, so its exact field
-and cause cannot be recovered. It is unknown whether any field was required or
-rejected; `config.balancer.algorithm` requiredness and accepted enum were not
-established, and a missing algorithm was not identified as the 400 cause. Do
-not remove `config.balancer.retries: 0` or `failover_criteria: []` from the Jev
-model without evidence and owner direction.
+この試行の通常モデルはGemini targetのみを使用します。OpenAI keyがなかったためOpenAI provider/targetは作成していません。native TypeSafe Jev Model作成は**HTTP 400**でした。その後のread-only一覧は `insurance-normal` のみで、Jev Modelは未作成でした。安全なcallerがエラーbodyを破棄したため、正確なfieldと原因は復元できません。必須／拒否fieldは不明で、`config.balancer.algorithm` の必須性とenumも未確認でした。algorithm欠落を400の原因とは特定していません。根拠と所有者の指示なしにJev Modelの `config.balancer.retries: 0` や `failover_criteria: []` を削除しません。
 
-After the 2026-10-06 owner authorization, one diagnostic model-create POST was
-attempted at 08:34 JST using the reconstructed, secret-free request body
-SHA-256 `3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791`.
-It referenced the existing TypeSafe provider; the upstream `JEV_API_KEY` value
-was not serialized into this request. The caller raised `URLError` without an
-HTTP status. Its inner reason was not retained, so it is unknown whether the
-request bytes reached Konnect. A subsequent read-only GET returned HTTP 200 and
-still listed only `insurance-normal`; `insurance-jev-decisions` remains absent.
-No POST retry was made. Do not retry blindly; MCP Server creation, DP start, and
-S1/S2/S3 traffic remain stopped pending resolution.
+2026-10-06の所有者承認後、08:34 JSTに秘密を含まない再構成body（SHA-256 `3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791`）で診断用Model作成POSTを1回試しました。既存TypeSafe providerを参照し、上流 `JEV_API_KEY` はbodyに含めません。callerはHTTP statusのない `URLError` を返し、内部reasonを保持しなかったためKonnectへbytesが届いたかは不明です。その後のread-only GETはHTTP 200で通常モデルのみでした。`insurance-jev-decisions` はまだ存在せず、POST再試行はしていません。無条件再試行を避け、原因解決までMCP作成、DP起動、S1/S2/S3通信を停止しました。
 
-The diagnostic return did not meet the agreed acceptance condition: the author
-discarded `URLError.reason`, repeating the earlier loss of the 400 response
-classification. At `56bf308`, the Manager authored `scripts/konnect-diagnostic.py`
-as an initial replacement retaining only allowlisted field/code and fixed
-categories or transport type/numeric code, closing error response streams
-without emitting raw exception strings, headers or bodies. Run
-`python3 scripts/konnect-diagnostic.py --self-test` for offline mock tests;
-`--get-models` is read-only and requires an already supplied `KONNECT_TOKEN`.
-TLS certificate/hostname verification remains enabled and redirects are refused.
-There is no CLI POST mode; another POST requires owner reauthorization plus
-read-only duplicate avoidance. Its initial four tests were mocked; separately, the Manager
-ran one real read-only GET through this new client on 2026-10-06: HTTP 200 with
-only `insurance-normal`, with certificate/hostname verification enabled. This
-is not proof of Jev registration. A real GET 200 does not prove that the failed POST
-was pre-HTTP or that its cause was TLS. Provider traffic and expense evidence
-remain unavailable; no data-plane LLM/Jev/MCP/insurance calls or DP launch occurred.
-The initial classifier at `56bf308` recognized only top-level `code`, `message` and
-dictionary `fields` paths. Native error-envelope conformance has not been
-established; nested `errors`, array `details` or unknown paths may yield only
-`http_error`. It guarantees bounded sanitization, not a diagnosis of the 400.
-The closed code allowlist includes the generic lowercase codes documented in
-[Konnect API Errors](https://developer.konghq.com/api/errors/); that generic
-reference does not establish the AI Gateway model-create error envelope.
-Before proposing another POST, verify the known native error shape read-only
-and extend only proven field paths if necessary; do not infer a payload fix
-from an unclassified response.
+診断結果は合意した受入条件を満たしませんでした。著者が `URLError.reason` を破棄し、先の400応答分類の消失を繰り返したためです。`56bf308` でManagerは `scripts/konnect-diagnostic.py` を初期代替として作成しました。許可済みfield/code、固定categoryまたはtransport type／数値codeだけを保持し、raw exception文字列、header、bodyを出力せずresponse streamを閉じます。`python3 scripts/konnect-diagnostic.py --self-test` はoffline mock検査です。`--get-models` はread-onlyで、事前供給された `KONNECT_TOKEN` が必要です。TLS証明書／hostname検証は有効、redirectは拒否、CLI POST modeはありません。別POSTには所有者の再承認とread-only重複回避が必要です。初期4テストはmockでした。別途Managerが2026-10-06に新clientで実GETを1回行い、検証済みTLSでHTTP 200、通常モデルのみを確認しました。これはJev登録の証明ではありません。GET 200だけで失敗POSTがHTTP前だった、原因がTLSだったとは判断できません。provider通信／費用の証拠はなく、DPのLLM/Jev/MCP/保険呼出しやDP起動はありませんでした。初期classifier `56bf308` はtop-level `code`、`message`、dictionary `fields` pathのみを認識します。native error envelope適合は未確認で、nested `errors`、array `details`、未知pathは `http_error` のみになり得ます。保証するのはbounded sanitizationで、400原因診断ではありません。閉じたcode allowlistは[Konnect API Errors](https://developer.konghq.com/api/errors/)の汎用lowercase codeを含みますが、AI Gateway Model作成のerror envelopeは証明しません。次POSTを提案する前にnative shapeをread-only確認し、必要なら根拠のあるfield pathだけを拡張します。未分類応答からpayload修正を推測しません。
 
-### Single diagnostic attempt after renewed authorization
+### 再承認後の診断1回
 
-On 2026-10-06, the Manager used the unchanged reviewed helper for exactly one
-new POST, between 08:58:30 and 08:58:32 JST. The request hash remained
-`3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791`.
-The retained result was `HTTPError`, status `400`, category `http_error`, delivery
-`http_response_received`, empty allowlisted `fields`, and no recognized `code`.
-HTTP response receipt is now proven; the specific rejection reason and absence
-of side effects are not. The last GET preceded this POST and listed only the
-normal model; no post-attempt GET was performed. No retry or downstream work
-followed. The helper read the body only into temporary local variables, closed
-the response and exited; no raw body or message remains recoverable. This is
-the third failure to obtain the agreed diagnostic cause. The Manager executed
-despite the known parser limitation, and the Coordinator accepted that limited
-precheck; the safe-output checks were not sufficient diagnostic acceptance.
+2026-10-06 08:58:30〜08:58:32 JSTにManagerはレビュー済みhelperを変更せず、新POSTをちょうど1回行いました。request hashは `3289cbdf27568d9db9e15c6cee7081e9f9d304ca42332097dd959bd9e000e791` のままです。保持した結果は `HTTPError`、status `400`、category `http_error`、delivery `http_response_received`、許可済み `fields` は空、認識された `code` なしでした。HTTP応答受信は確認できましたが、具体的拒否理由と副作用なしは未確認です。最後のGETはPOST前で通常モデルのみ、試行後GETはありません。再試行も後続作業も行っていません。helperはbodyを一時local変数でだけ読み、responseを閉じて終了し、raw body/messageは復元できません。合意した診断原因を得られなかった3回目の失敗です。Managerは既知parser制約があるまま実行し、Coordinatorも限定precheckを受け入れました。安全出力検査は診断受入として不十分でした。
 
-A narrow author comparison and independent review against the published
-[TypeSafe model example](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)
-found the following, without further Konnect HTTP requests:
+著者による限定比較と独立レビューは、追加Konnect HTTPなしで公開[TypeSafe Model例](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)との次の差を確認しました。
 
-| Submitted element | Comparison with the published example |
+| 送信要素 | 公開例との比較 |
 | --- | --- |
-| `type`, `capabilities`, `formats`, target model/config and `/jev` route | Same native shape: model, decisions, TypeSafe, jev-latest. |
-| Provider reference | Existing provider name replaces the example name; [AI Model docs](https://developer.konghq.com/ai-gateway/entities/ai-model/) specify name references. |
-| `enabled`, empty `policies`, `access.auth_strategies`, logging and balancer | Added to the minimal example; omission does not establish rejection. |
-| Provider authentication | Bearer upstream key belongs to the provider; inbound key-auth remains a separate model access control. No key is in this model body. |
+| `type`, `capabilities`, `formats`, target Model／configと `/jev` route | native shape一致：model、decisions、TypeSafe、jev-latest |
+| provider参照 | 例名を既存provider名へ置換。[AI Model資料](https://developer.konghq.com/ai-gateway/entities/ai-model/)はname参照を指定 |
+| `enabled`, 空の `policies`, `access.auth_strategies`, loggingとbalancer | 最小例への追加。省略されていることは拒否の証明でない |
+| provider認証 | 上流Bearer keyはprovider所属、inbound key-authは別のmodel access制御。bodyにkeyなし |
 
-The [load-balancing reference](https://developer.konghq.com/ai-gateway/load-balancing/)
-documents retries and failover controls, but does not establish that a missing
-algorithm caused this 400. Dropping access, payload-logging suppression or
-`retries: 0` / `failover_criteria: []` as a guess could weaken authentication,
-privacy or the call-budget boundary. No such change is proposed.
+[Load balancing資料](https://developer.konghq.com/ai-gateway/load-balancing/)はretry／failover制御を説明しますが、algorithm欠落がこの400の原因とは証明しません。推測でaccess、payload logging抑止、`retries: 0` / `failover_criteria: []` を削除すると認証・privacy・呼出しbudget境界を弱め得るため、その変更は提案しません。
 
-The next method is a diagnostic acceptance fix, not another blind POST. The
-Coordinator's fixed-classification-only requirement overconstrained cause
-recovery; the revised requirement preserves minimal redacted explanations.
-The helper now traverses only known error containers, retaining at most four
-`message`/`title`/`detail`/string `error` explanations of 512 characters each and safe shape
-metadata. Raw JSON (maximum 64 KiB) remains temporary memory only. Known secret
-values from the environment and the two ignored, non-symlink, `0600` local
-handoff/overlay files are masked exactly, including URL/JSON/base64 forms.
-Sensitive-key values are never traversed; Bearer and labelled credential text
-are masked. Unknown structures/codes retain shape rather than arbitrary values.
-Six offline tests cover nested/string error explanations, secret canaries, unknown code,
-size limits, transport classification and TLS/redirect boundaries. No API call
-was made with this revised version.
+次の方法は盲目的なPOSTではなく診断受入の修正です。Coordinatorの固定分類のみという要求は原因回復を過度に制限したため、最小のredacted説明を保持する要件へ改めました。helperは既知error containerだけを辿り、最大4件の `message` / `title` / `detail` / string `error` を各512文字までと安全なshape情報を保持します。raw JSONは最大64 KiBで一時memoryのみです。環境変数と、Git管理外・非symlink・`0600` のlocal handoff/overlay 2ファイルの既知secretをURL/JSON/base64形も含め完全一致でmaskします。sensitive keyの値を辿らず、Bearerやlabel付きcredential文字列もmaskします。未知structure/codeは任意値ではなくshapeだけを保持します。6 offlineテストはnested/string説明、secret canary、未知code、size制限、transport分類、TLS/redirect境界を検査しました。この修正版でAPIは呼んでいません。
 
-This is not a proof of the native envelope or a guarantee against an unknown
-unlabelled secret inside a recognized explanation. Review redacted evidence
-locally before adding it to Git or a comment. Resolve the native schema/error
-format read-only where available and select any further diagnostic action only
-after a new owner decision. Registration, MCP creation, DP startup and all
-model/Jev/insurance traffic remain stopped; retry/auth/privacy settings remain
-unchanged.
+native envelopeの証明や、認識した説明中に未知・unlabelled secretがない保証ではありません。Git/commentに追加する前にredacted証拠をlocalでレビューします。利用可能ならnative schema/error形式をread-onlyで解決し、次の診断は新たな所有者判断後にだけ選びます。登録、MCP作成、DP起動、全model/Jev/保険通信は停止のままで、retry/auth/privacy設定も不変です。
 
-Context7 was checked using public product queries only. `Jev` alone yielded
-third-party clients; `TypeSafe AI Jev` resolved the official documentation
-library `/websites/typesafe_ai` and `/typesafe-ai/typesafe-sdk-python`. Querying
-the documentation returned [the official API](https://docs.typesafe.ai/api):
-native `/v1/systemone`, upstream Bearer authentication, state/questions/answers
-and `jev-latest`. These are current unversioned docs, not a verified version
-pin; they help with Jev API contracts without its source code but do not define
-the Konnect model-registration error envelope. Worker A checked the published
-contracts, the Manager made the Context7 calls, and Worker B independently
-reviewed the structural comparison and stop boundary.
+Context7は公開製品のqueryだけで調べました。`Jev` 単独は第三者clientを返し、`TypeSafe AI Jev` は公式library `/websites/typesafe_ai` と `/typesafe-ai/typesafe-sdk-python` を特定しました。公式資料queryは[API](https://docs.typesafe.ai/api)のnative `/v1/systemone`、上流Bearer認証、state/questions/answers、`jev-latest` を返しました。版を固定していない現行資料であり、Jev sourceなしでも契約理解を補助しますがKonnect登録error envelopeは定義しません。Worker Aが公開契約を確認、ManagerがContext7、Worker Bが構造比較と停止境界を独立レビューしました。
 
-### Local loader defect and corrected preflight
+### local loader不具合とpreflight修正
 
-One newly authorized POST function call ran between 09:19:37 and 09:19:38 JST
-on 2026-10-06, using `86428f1` and the unchanged reviewed payload. The Manager's
-ad-hoc wrapper called `request_models` first, received its result, then called
-`known_secret_values` again before output. That second call raised `TypeError`:
-`Path.open` does not accept `opener`. The function result was not printed, so
-the POST HTTP status and delivery cannot be established. No further POST was
-attempted. A non-secret stack trace appeared, failing the no-traceback rule;
-raw response bodies, headers and credentials were not printed.
+2026-10-06 09:19:37〜09:19:38 JSTに `86428f1` と変更なしのレビュー済みpayloadで、新たに承認されたPOST関数を1回呼びました。Managerのad-hoc wrapperは `request_models` の結果を受け取った後、出力前に `known_secret_values` を再呼出しし、`Path.open` が `opener` 非対応のため `TypeError` になりました。関数結果が未出力なのでPOST HTTP status/deliveryは確認できません。追加POSTはありません。secretを含まないstack traceが出てno-traceback規則に違反しました。raw response body/header/credentialは出力していません。
 
-The defect was also present in the script itself, not just the wrapper.
-Inside `classify`, the same loader error was suppressed as
-`message_redaction: unavailable`, which would preserve status but lose the
-explanation. The wrapper then lost the returned evidence entirely. Previous
-injected-secret tests bypassed that loader; other canary tests could pass when
-all explanations were suppressed. Author, independent review and Coordinator
-spot-check did not identify the unsupported Python API before execution.
+不具合はwrapperだけでなくscript内にもありました。`classify` 内では同じloader errorを `message_redaction: unavailable` として抑止し、statusは保持できても説明を失います。wrapperは返却証拠全体を失いました。以前のsecret注入テストはloaderを迂回し、他canaryテストも全説明が抑止されるとpassできました。著者、独立review、Coordinator spot-checkは実行前に非対応Python APIを検出できませんでした。
 
-The limited repair uses built-in `open` with `O_NOFOLLOW` and loads all known
-redaction values once inside `request_models`, before HTTP. Loader failure
-returns a fixed `redaction_preflight_failed` result with delivery
-`not_attempted`; there is no post-call loader or sanity-check wrapper. The
-actual-file integration test uses temporary `0600` overlay/handoff files and
-the same POST entry point with a mocked HTTP 400: it asserts useful redacted
-explanations and no canaries. Unsafe file permissions assert zero opener calls.
-Canary fixtures now supply known values and assert that an explanation exists,
-rather than treating its suppression as success. Seven offline tests pass.
+限定修正は組込み `open` と `O_NOFOLLOW` を使い、HTTP前に `request_models` 内で既知redaction値を一度だけ読みます。loader失敗は固定 `redaction_preflight_failed`、delivery `not_attempted` を返し、post-call loaderやsanity wrapperはありません。実ファイル統合テストは一時 `0600` overlay/handoffと同じPOST入口をmock HTTP 400で使い、説明が有用かつcanaryなしと検証します。unsafe permissionはopener呼出し0を確認します。canary fixtureは既知値を供給し、説明抑止を成功とせず説明の存在をassertします。7 offlineテストがpassしました。
 
-One owner-authorized read-only parts check through the repaired function ran
-09:22:38–09:22:39 JST: HTTP 200, only `insurance-normal`; no Jev model was present
-in that listing. This validates the local loader and verified-TLS GET path,
-not POST error capture or live Jev operation. No further HTTP, MCP creation,
-DP startup or host inference traffic followed. A new POST remains paused; the
-next decision must account for this execution defect, not assume another
-unchanged trial will explain the original 400.
+所有者承認のread-only部分確認は修正関数で09:22:38〜09:22:39 JSTに実施し、HTTP 200、通常モデルのみでJevなしでした。local loaderと検証済みTLS GET経路を検証するもので、POST error取得やlive Jev動作ではありません。その後追加HTTP、MCP作成、DP起動、host推論はありません。新POSTは保留で、次判断はこの実行不具合を考慮し、変更なし再試行が元400を説明すると仮定しません。
 
-The three inbound key values are kept only in ignored `.env.live.local`
-(mode `0600`); the new local DP private key is in ignored
-`certs/ai-gateway-client.key` (mode `0600`), and its public certificate is
-`certs/ai-gateway-client.crt` (mode `0644`). No secret value is in this table or
-the repository. The local adapter patch uses distinct `AI_GATEWAY_API_KEY`,
-`AI_GATEWAY_JEV_API_KEY`, and `MCP_API_KEY` values in the fixed `apikey`
-header; these are inbound Consumer credentials, not Gemini/TypeSafe provider
-credentials. All three keys share one strategy and do not provide per-route
-authorization isolation. Outbound Gemini auth uses `x-goog-api-key`; outbound
-TypeSafe auth uses `Authorization: Bearer <key>`.
+受信key 3値はGit管理外 `.env.live.local`（`0600`）のみ、新DP秘密鍵はGit管理外 `certs/ai-gateway-client.key`（`0600`）、公開証明書は `certs/ai-gateway-client.crt`（`0644`）です。この表とrepoにsecret値はありません。local adapterは別々の `AI_GATEWAY_API_KEY`、`AI_GATEWAY_JEV_API_KEY`、`MCP_API_KEY` を固定 `apikey` headerで使います。これらは受信Consumer credentialでGemini/TypeSafe provider credentialではありません。3キーは1strategyを共有し、route別認可分離を提供しません。外向きGemini認証は `x-goog-api-key`、TypeSafe認証は `Authorization: Bearer <key>` です。
 
-No cleanup has been performed. If separately authorized, delete only resources
-under the new Gateway in reverse dependency order: models/MCP Servers (none of
-the failed Jev model or MCP Servers exist), the three credentials, the AI
-Consumer, auth strategy and providers, the registered certificate, and finally
-the dedicated Gateway root. Then remove only the new ignored local overlay and
-certificate files. The existing OBO control plane and gateways are out of
-scope and must not be modified or deleted.
+cleanupは未実施です。別途承認された場合だけ新Gateway配下を逆依存順で削除します：Models/MCP（当時failed Jev/MCPは存在せず）、3credential、Consumer、strategy/providers、登録証明書、最後に専用Gateway。続いて新Git管理外overlay/証明書だけを削除します。既存OBO CP/Gatewayは範囲外で変更／削除しません。
 
-## Reuse and 2.2-specific boundary
+## 再利用と2.2固有の境界（当時の確認）
 
-The reference pattern was reviewed locally in
-`picketfence-labs/kong-azure-obo-demo@7d11ca10c90d4fea61d1679412f01738784204d3`:
-`docker-compose.yml`, `.env.example`, `services/chat-ui/Dockerfile` and its
-`.dockerignore`, plus `services/demo-api/Dockerfile` and its `.dockerignore`.
-This scaffold reuses the Compose bridge and read-only certificate/key mounts.
-This template adds loopback-only host publishing for the UI and DP. That repo
-uses Kong Gateway 3.16 and its plugin model; it is not used as an AI Gateway
-2.2 entity configuration.
+参照patternはlocalの `picketfence-labs/kong-azure-obo-demo@7d11ca10c90d4fea61d1679412f01738784204d3` で確認しました。対象は `docker-compose.yml`、`.env.example`、`services/chat-ui/Dockerfile` と `.dockerignore`、`services/demo-api/Dockerfile` と `.dockerignore` です。Compose bridgeとread-only cert/key mountを再利用し、UI/DPのloopback限定公開を追加しました。参照repoはGateway 3.16のplugin modelであり、AI Gateway 2.2 entity設定として使いません。
 
-AI Gateway 2.2 uses the Konnect-managed AI Gateway control plane plus a
-self-managed data plane. The `kong/kong-ai-gateway:2.2.0` image tag is the
-requested target, while the DP's `KONG_*` names below follow the official AI
-Gateway configuration reference (minimum version 2.0). The image's default
-launch behavior and `kong health` command were not exercised or independently
-verified against that image here, so the DP stanza remains a launch scaffold,
-not evidence of a working or registered data plane. The healthcheck is intended
-only as local process health.
+AI Gateway 2.2はKonnect管理CPとself-managed DPを使います。要求imageは `kong/kong-ai-gateway:2.2.0`、`KONG_*` 名は公式設定資料（最低2.0）に従います。当時はimageの既定起動と `kong health` を実行／独立検証していなかったため、DP定義は起動scaffoldで、稼働／登録証拠ではありませんでした。healthcheckはlocal process healthのみを意図します。
 
-The API source's OpenAPI operation IDs identify the app's approved detail GET
-candidates for the MCP owner. Configure AI MCP Server entities/routes to
-target these internal Compose origins; expose only the needed operations and
-set the actual public DP route URLs in `.env`:
+API sourceのOpenAPI operation IDは、MCP所有者にとってアプリが許可する詳細GET候補です。AI MCP Server/entity/routeは次のCompose内部originをtargetにし、必要操作だけを公開し、実DP route URLをlocal envへ設定します。
 
-| Candidate `MCP_*_URL` | Internal REST detail target | MCP route / generated input | Detail GET operation ID |
+| 候補 `MCP_*_URL` | 内部REST詳細target | MCP route／生成input | 詳細GET operation ID |
 | --- | --- | --- | --- |
 | `http://ai-gateway:8000/mcp/product` | `http://product-api:8000/products/{product_id}` | `/mcp/product` / `path_product_id` | `get_product_products__product_id__get` |
 | `http://ai-gateway:8000/mcp/customer` | `http://customer-api:8000/customers/{customer_id}` | `/mcp/customer` / `path_customer_id` | `get_customer_customers__customer_id__get` |
@@ -424,73 +173,35 @@ set the actual public DP route URLs in `.env`:
 | `http://ai-gateway:8000/mcp/policy` | `http://policy-api:8000/policies/{policy_id}` | `/mcp/policy` / `path_policy_id` | `get_policy_policies__policy_id__get` |
 | `http://ai-gateway:8000/mcp/claim` | `http://claim-api:8000/claims/{claim_id}` | `/mcp/claim` / `path_claim_id` | `get_claim_claims__claim_id__get` |
 
-These operation IDs come from the matching `services/<name>/openapi.yaml` at
-`picketfence-labs/kong-api-bundle-insurance@ab96eea303e27fe02d98344a31bc7633753da77e`.
-These exact detail GET operations are the app's allowed tool contract; list,
-write, and simulation operations are not in scope. Kong conversion-listener
-tool naming prefixes path arguments with `path_`; the host normalizes only the
-exact expected ID name at the authorization boundary and forwards the original
-SDK tool args unchanged. Extra, duplicate, foreign, empty, or non-string IDs
-are rejected before a business request. The REST service containers alone do
-not provide MCP. These mappings were candidates before the live checkpoint
-below; the five entities/routes have now been created. The later checkpoint
-records the limited request evidence and remaining acceptance gaps.
+operation IDは `picketfence-labs/kong-api-bundle-insurance@ab96eea303e27fe02d98344a31bc7633753da77e` の各 `services/<name>/openapi.yaml` 由来です。完全一致する詳細GETだけが許可契約で、一覧／書込／simulationは範囲外です。Kong conversion-listenerはpath引数に `path_` を付けます。hostは認可境界で期待ID名だけを正規化し、元SDK argsは変更せずforwardします。余分／重複／他種／空／非string IDは業務request前に拒否します。RESTコンテナだけではMCPになりません。これらは後のlive確認前は候補でしたが、後に5entity/routeを作成しました。後続確認は限定request証拠と未受入範囲を記録します。
 
-Reference behavior: [AI Gateway architecture](https://developer.konghq.com/ai-gateway/architecture/),
+仕様の参照： [AI Gateway architecture](https://developer.konghq.com/ai-gateway/architecture/),
 [configuration reference](https://developer.konghq.com/ai-gateway/configuration/),
 [AI Model entities](https://developer.konghq.com/ai-gateway/entities/ai-model/),
 [TypeSafe provider](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/),
-and [AI Model load balancing](https://developer.konghq.com/ai-gateway/load-balancing/).
+および[AI Model load balancing](https://developer.konghq.com/ai-gateway/load-balancing/).
 
-## Insurance API source
+## 保険API source
 
-The API image builds from the sibling checkout `../kong-api-bundle-insurance`
-at source revision `ab96eea303e27fe02d98344a31bc7633753da77e`. Its existing
-`services/Dockerfile` was reviewed for the five `SERVICE` values and seed-file
-layout; this repo's wrapper keeps the selected API code and matching seed in
-each image. The Dockerfile-specific ignore file is an allowlist so unrelated
-source files, `.git`, local environments, and agent instructions are not sent
-in the build context. No image build had run at the original static-review
-checkpoint; see the later runtime checkpoint below.
+API imageは兄弟checkout `../kong-api-bundle-insurance` のrevision `ab96eea303e27fe02d98344a31bc7633753da77e` からbuildします。既存 `services/Dockerfile` の5つの `SERVICE` とseed配置をレビューし、このrepoのwrapperは選択API codeと一致seedを各imageへ格納します。Dockerfile専用ignoreはallowlistで、無関係source、`.git`、local env、agent指示をcontextへ送りません。元のstatic review時点ではimage build未実行でした。後のruntime確認を参照してください。
 
-## Safe static check
+## 安全な静的確認
 
-With Docker Compose v2 installed, validate interpolation without starting
-containers or contacting registries:
+Docker Compose v2で、コンテナ起動／registryアクセスなしに補間を検証します。
 
 ```sh
 docker compose --env-file .env.example config --quiet
 ```
 
-The DP cert files and API sibling source are owner/local prerequisites for a
-future runtime attempt. This static check is not a build, startup, connectivity,
-or live acceptance test. Do not treat it as approval to start live traffic.
-The existing app secret-scan result does not establish complete coverage of
-Compose, Dockerfile, ignore-file, or environment-template formats; those files
-still require independent manual path/placeholder/secret review.
+DP certと兄弟API sourceは将来runtime試行の所有者／local前提でした。この静的確認はbuild、起動、疎通、live受入ではなくlive通信開始の承認でもありません。既存secret-scanはCompose/Dockerfile/ignore/env template形式の全coverageを証明しないため、独立した手動path/placeholder/secret reviewが必要です。
 
-The existing `.github/workflows/ci.yml` remains the app's offline merge harness: it runs on push and pull request with Node.js 22, live gates disabled and telemetry off, then install, lint, typecheck, mocked tests, secret-scan, and production build. Compose `config --quiet` was checked locally by A/B/Manager only and is not a CI job. No Compose image build or start had occurred at the original static checkpoint; see the current live checkpoint below. All services share one bridge, so web and DP can reach the five REST APIs over Compose DNS even though those API ports are not host-published; network-level isolation is not provided.
+既存 `.github/workflows/ci.yml` はoffline merge検証で、push/PR時にNode22、live gate無効、telemetry offでinstall、lint、typecheck、mock test、secret-scan、production buildを実行します。Compose `config --quiet` はA/B/Managerのlocal検査のみでCI jobではありません。当初static確認でCompose build/起動はなく、後のlive確認を参照します。全サービスは同じbridgeを共有し、host非公開APIへweb/DPがCompose DNSで到達できるため、network-level分離はありません。
 
-## Live checkpoint — 2026-10-06, after 10:02 JST
+## 過去のライブ確認 — 2026-10-06 10:02 JST以降
 
-This update supersedes earlier “Jev model absent / MCP not created / no runtime”
-statements above; those describe earlier checkpoints. The Jev model's first
-create attempt returned HTTP 400 with the redacted field path
-`config.balancer` and discriminator `algorithm` missing. The bounded repair added
-`algorithm: round-robin`, retaining `retries: 0` and `failover_criteria: []`;
-the single repaired create returned HTTP 201 (09:34:07–08 JST), with Jev model ID
-`fffee564-6af2-4a69-a172-fe6403923ea3`. The repaired create payload SHA-256 was
-`4cc9f6efa9a95c7301e7a4a8e9e954ee1d19f3c5a10f21e12057df744bada459`.
-Read-only model metadata confirmed
-the Jev model enabled with retries `0`, failover `[]`, and payload logging off.
-This proves accepted configuration, not end-to-end Jev execution.
+この記録は先の「Jev modelなし／MCP未作成／runtimeなし」を更新します。先の記述は当時の状態です。Jev最初のcreateはHTTP 400で、redacted field `config.balancer`、discriminator `algorithm` 欠落を示しました。限定修正は `algorithm: round-robin` を追加し、`retries: 0` / `failover_criteria: []` を保持しました。修正create 1回は09:34:07〜08 JSTにHTTP 201、Jev Model ID `fffee564-6af2-4a69-a172-fe6403923ea3`、payload SHA-256 `4cc9f6efa9a95c7301e7a4a8e9e954ee1d19f3c5a10f21e12057df744bada459` でした。read-only metadataはenabled、retry0、failover空、payload logging offを確認しました。受理された設定の証明でend-to-end Jev実行ではありません。
 
-The five MCP Servers were each created with HTTP 201 after two narrow payload
-repairs: explicitly discriminate the Consumer ACL (`acl_attribute_type:
-consumer`, allowing the existing `insurance-demo-local-app`) and omit optional
-tool annotation objects rejected by the AI Gateway 2.2 schema. Authentication
-was not disabled; each listener continues to use the fixed key-auth strategy.
-Their identifiers are:
+5 MCP Serverは2つの限定payload修正後それぞれHTTP 201でした。Consumer ACLを `acl_attribute_type: consumer` と明示し既存 `insurance-demo-local-app` を許可、2.2 schemaが拒否する任意tool annotationを省略しました。認証は無効化せず、各listenerは固定key-auth strategyを継続しました。IDは次のとおりです。
 
 | MCP entity | ID |
 | --- | --- |
@@ -500,261 +211,73 @@ Their identifiers are:
 | policy | `a23fc5b0-2fed-4049-ac70-6bcec1f5e012` |
 | claim | `e477ffc1-1ef4-477e-97f2-cdd92f2d6042` |
 
-Six Docker images built successfully. Compose then started the six non-web
-services with `up -d --no-build`; the web container was subsequently started.
-The DP reports `kong health` success (process health only). A native Konnect
-node read reported the dedicated DP node ID
-`739088a9-1831-4f51-8df2-5b2c8a353542`, hostname
-`3e181700a0b2`, and version `2.2.0`; status/hash projection fields were not
-confirmed. An unauthenticated customer MCP request returned HTTP 401, evidence
-of route/auth handling rather than a successful tool call. The ignored local
-Compose overlay is mode `0600`; the tracked live gates remain off.
+6 Docker image buildが成功しました。Composeはnon-web 6serviceを `up -d --no-build` で起動し、後にwebを起動しました。DPの `kong health` は成功（process healthのみ）。native Konnect node読取はDP node ID `739088a9-1831-4f51-8df2-5b2c8a353542`、hostname `3e181700a0b2`、version `2.2.0` を報告し、status/hash投影fieldは未確認です。認証なしcustomer MCPはHTTP 401で、route/auth処理の証拠ですがtool成功ではありません。Git管理外local overlayは `0600`、tracked live gateはoffのままでした。
 
-The Japanese UI was ready, and the first authorized S1 turn was submitted at
-10:02:04 JST. It failed: the UI returned HTTP 502 after the second normal
-Gateway request returned HTTP 400. Subsequent bounded S1 turns and the final
-stop are recorded below; no automatic retry or S2/S3 turn was run.
+日本語UIがreadyになり、承認された最初のS1を10:02:04 JSTに送信しました。2回目の通常Gateway requestがHTTP 400となり、UIはHTTP 502で失敗しました。後の限定S1と最終停止を以下に記録します。自動再試行やS2/S3は行っていません。
 
-Sanitized request evidence records one normal POST HTTP 200, then five MCP
-`tools/list` calls reaching authenticated listeners, followed by one claim
-`tools/call` and the single business request `GET /claims/CLM-000015` returning
-HTTP 200. Product, customer, application, and policy business GETs were not
-observed; the Jev route was not observed. The subsequent normal POST returned
-HTTP 400 and the application route returned its generic 502. The exact provider
-error body was not retained, so its cause remains unknown. These log events do
-not substitute for the app's final usage/receipt summary or prove downstream
-completion, decision, or a charge amount.
+sanitized request証拠は通常POST 1回HTTP 200、認証listenerへ5 MCP `tools/list`、claim `tools/call` 1回、唯一の業務 `GET /claims/CLM-000015` HTTP 200を記録しました。Product/Customer/Application/Policyの業務GETとJev routeは未観測です。次の通常POSTはHTTP 400、アプリrouteは汎用502でした。provider error body未保持のため原因は不明です。log eventは最終usage/receipt summaryの代用ではなく、後続完了・decision・費用額も証明しません。
 
-### Narrow compatibility finding (cause not confirmed)
+### 限定した互換性所見（原因未確認）
 
-The insurance claim endpoint returns the claim record itself (`main.py` returns
-the result of `store.get`, with no outer `data` envelope); the MCP adapter
-accepts MCP `structuredContent` or parses a JSON text block before the existing
-projection checks the exact `claim_id` and allowlisted fields. The HTTP 200
-claim call followed by a second model request is consistent with this path,
-but the exact MCP tool-result envelope was not retained. This does not establish
-that an MCP shape caused the later HTTP 400.
+claim endpointはrecord自体を返します（`main.py` は `store.get` 結果で外側 `data` envelopeなし）。MCP adapterは `structuredContent` またはJSON text blockを受け、投影は完全一致 `claim_id` とallowlistを検証します。claim HTTP 200後の2回目model requestはこの経路と整合しますが、具体MCP result envelopeは未保持です。MCP shapeが後の400を起こしたとは特定できません。
 
-The active normal target at the first S1 attempt was `gemini-3.5-flash`. Google documents Gemini 3
-function-call thought signatures as mandatory in the next request; its Gemini
-2.5 documentation says function-call signatures, when present, are optional.
-The installed `@ai-sdk/openai@4.0.60` parser maps returned OpenAI tool calls to
-tool name/arguments and the serializer reconstructs assistant tool-call fields
-and tool output text; it does not round-trip the Google-specific thought
-signature metadata. That is a concrete compatibility gap and a plausible
-explanation for a post-tool-call 400, **not a confirmed cause**, because the
-exact 400 body was not retained. Kong's Gemini provider documentation supports
-the `generate` capability on the OpenAI-compatible `/chat/completions` path,
-but does not prove this model's multi-step thought-signature/tool round-trip.
+最初のS1通常targetは `gemini-3.5-flash` でした。GoogleはGemini3 function-call thought signatureを次requestに必須、Gemini2.5は存在しても任意と説明します。`@ai-sdk/openai@4.0.60` parserは返却OpenAI tool callをname/argsへmapし、serializerはassistant/tool fieldsとtextを再構成しますが、Google固有thought-signature metadataを往復保持しません。具体互換gapで、tool後400のもっともらしい説明ですが**確認済み原因ではありません**（400 body未保持）。Kong Gemini資料はOpenAI互換 `/chat/completions` の `generate` を支持しますが、このmodelの複数step signature/tool往復を証明しません。
 
-At the time of this compatibility assessment, `gemini-2.5-flash` was only a
-fallback candidate in read-only metadata. Its subsequent owner-authorized model
-configuration update and S1 result are recorded in the final checkpoint below.
+互換性評価時の `gemini-2.5-flash` はread-only metadata上のfallback候補だけでした。後の所有者承認によるmodel更新とS1結果は次の最終確認にあります。
 
-References: [Gemini 3.5 Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash),
+参照： [Gemini 3.5 Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash),
 [Gemini thought signatures](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures),
 [Gemini 2.5 Flash model](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash),
-and [Kong Gemini provider](https://developer.konghq.com/ai-gateway/ai-providers/gemini/).
+および[Kong Gemini provider](https://developer.konghq.com/ai-gateway/ai-providers/gemini/).
 
-## Final bounded S1 checkpoint — 2026-10-06, stopped 10:31:57 JST
+## 限定S1の最終確認 — 2026-10-06 10:31:57 JST停止
 
-The normal AI Model was updated once via the native API (HTTP 200) to use only
-`gemini-2.5-flash`; readback (HTTP 200) matched the reviewed payload on all
-whitelisted fields. Compared with the pre-update model, only the intended target
-name changed. The payload SHA-256 was
-`3da25c8c6248901682c39b1a591d22e9428679d7a671f3e0249f9504e75cb812`. Retries
-`0`, failover `[]`, and payload logging off were retained. This is accepted
-configuration, not successful generation or tool-round-trip proof.
+通常AI Modelはnative APIで一度更新（HTTP 200）し、`gemini-2.5-flash` のみにしました。readback HTTP 200は全許可fieldがレビューpayloadに一致し、更新前との差は意図したtarget名だけでした。payload SHA-256 `3da25c8c6248901682c39b1a591d22e9428679d7a671f3e0249f9504e75cb812`、retry0/failover空/payload logging offを保持しました。受理設定で、生成成功やtool往復の証明ではありません。
 
-After the earlier three S1 turns (each logged as 2 normal POSTs, 1 MCP
-`tools/call`, 0 Jev requests), the final turn had a pre-send `date` record of 10:31:14 JST; the web
-process stop had a `date` record of 10:31:57 JST. This 43-second observation
-interval is not a measured request duration. Its UI
-returned HTTP 502 with no card. The logs recorded 3 normal POSTs (HTTP 200), 3
-MCP `tools/call` requests, and 0 Jev route requests. The three business GETs
-were `GET /claims/CLM-000015`, `GET /customers/CUS-000011`, and
-`GET /policies/POL-000042`, each HTTP 200; product and application GETs were not
-observed. No S1 completed through Jev. The registered Jev model, DP process
-health, and Konnect node registration are separate configuration/process
-evidence and do not establish Jev inference.
+先のS1 3turnは各2normal POST、1MCP `tools/call`、0Jevでした。最後の送信前 `date` は10:31:14、web停止 `date` は10:31:57 JSTです。43秒は観測区間でrequest所要時間ではありません。UIはHTTP 502、cardなし。logは通常POST 3回HTTP 200、MCP call3回、Jev route0回でした。業務GETはclaim `CLM-000015`、customer `CUS-000011`、policy `POL-000042` 各HTTP 200で、Product/Applicationは未観測です。S1はJevまで完了していません。登録Model、DP health、node登録は別々の設定／process証拠でJev推論を証明しません。
 
-Across these four bounded S1 attempts, observed logs total 9 normal POSTs, 6
-business MCP tool calls/GETs, and 0 Jev route requests. MCP `tools/list`
-discovery is separate and excluded from that business-call count. These are
-observed log totals, not a complete wire/provider-usage ledger: the final
-host-attempt reservation/phase was not preserved, timeout/abort details were
-not retained, and provider billing/usage was not verified. Do not claim zero
-charges; actual cost remains unknown. Screenshot: [final S1 failure](evidence/live-s1-required-tools-failure.png).
-It was captured once as a full-page browser screenshot after the single final
-S1. Repeated tiles may reflect full-page capture tiling/stitching and are not
-evidence of additional turns.
+限定S1 4試行の観測log合計はnormal POST9、業務MCP call/GET6、Jev route0です。MCP `tools/list` discoveryは別で業務countに含めません。完全なwire/provider usage台帳ではなく、最終host予約／phase、timeout/abort詳細は未保持、provider billing/usage未検証です。無課金とは主張せず実費は不明です。[最終S1失敗画面](evidence/live-s1-required-tools-failure.png)は最後の1turn後のfull-page screenshot 1枚です。繰り返しtileはcaptureのtiling/stitchingの可能性があり、追加turnの証拠ではありません。
 
-Historical pre-change behavior: the app forced tool choice `required` while any
-S1-required fact kind was missing, then `none` only after the ledger was complete
-and related. That behavior is superseded by the current `auto` plus disclosed,
-post-completion host completion flow above. At that checkpoint B reviewed the
-then-current delta PASS. Offline checks passed:
-39 tests, typecheck, lint, diff check, secret scan (53 files, 0 findings), and
-the final Docker image build. The last S1 still failed, so no more attempts are
-authorized by this checkpoint.
+変更前の歴史的挙動はS1必須factが不足するとtool choice `required`、台帳完成と参照整合後 `none` でした。現行は上記 `auto` と明示された正常完了後host補完に置き換わっています。当時Bは差分をPASSとレビュー。offline検査は39テスト、typecheck、lint、diffcheck、secret-scan53files/0findings、最終Docker buildがpassしました。最後のS1は失敗したため、この確認で追加試行は承認されません。
 
-The recovery interval from the 09:29 kickoff to the 10:31:57 stop was about 63
-minutes, exceeding the earlier 15–25 minute estimate. The main delays were
-native schema repair and OpenAI-compatible Gemini tool/signature interoperability,
-followed by missing required ledger facts. The app's generic catch returned
-HTTP 502 without preserving a safe failure phase or final card; this is a
-diagnostic limitation. Since ordinary missing-fact ineligibility returns HTTP
-200, the 502 indicates an exception in acquisition/validation before Jev, but
-the exact throw point and cause were not preserved.
+09:29開始〜10:31:57停止の回復区間は約63分で、先の15〜25分予測を超えました。主な遅延はnative schema修正、OpenAI互換Gemini tool/signature互換性、その後の必須ledger不足です。アプリ汎用catchは安全なfailure phase／最終cardを保持せず502を返し、診断制約でした。通常の不足fact対象外はHTTP 200なので、502はJev前acquisition/validation例外を示しますが、正確なthrow位置／原因は未保持です。
 
+## 失敗phaseの確認 — 2026-10-06 11:04:40 JST停止
 
-## Failure-phase checkpoint — 2026-10-06, stopped 11:04:40 JST
+所有者は安全なhost-failure計測、local faultテスト、追加S1ちょうど1turnを承認しました。prompt/model/CP schema/retry/budgetは変更していません。計測は固定phase、限定type/category cause chain、host予約snapshot、ID/factなしentity/status receiptを出します。別承認HTTP error loggerはserverで短い既知secret-redacted説明を保持しますが、未知PII検出を保証せず共有前local reviewが必要です。固定host-eventテストはconsole全体のPII検出を主張しません。
 
-The owner authorized safe host-failure instrumentation, local fault tests, and
-exactly one further S1 turn. No prompt, model, CP schema, retry, or budget changed.
-The instrumentation emits fixed phases, bounded type/category cause chains,
-host reservation snapshots, and entity/status receipts without IDs or facts.
-The separately approved HTTP error logger still retains short bounded,
-known-secret-redacted explanations on the server; it does not guarantee detection
-of arbitrary unknown PII. Such explanations require local review before sharing.
-The fixed host-event tests do not claim whole-console PII detection.
+local検査は46tests（39contracts＋7execution-path fault）、lint warningなし、typecheck、secret-scan54files/0、diffcheck、最終Docker web buildがpass。Bは新7fault testsを独立実行し重要source/test差分PASSでした。再build imageは `sha256:3666eaf8c82646a5cdbc8d568c9c3a6ea788025eab560181a04c4fc34d73c113` です。
 
-Local checks passed: 46 tests (39 contracts plus 7 execution-path fault tests),
-lint without warnings, typecheck, secret scan (54 files, 0 findings), diff check,
-and the final Docker web build. B independently ran the 7 new fault tests and
-reviewed the critical source/test delta PASS. The rebuilt image was
-`sha256:3666eaf8c82646a5cdbc8d568c9c3a6ea788025eab560181a04c4fc34d73c113`.
+新web process開始 `date` は11:02:53、送信前11:03:08、停止11:04:40です。provider/request所要時間ではありません。1S1はHTTP 502、Jev cardなし。固定eventは `normal_sdk`、次に `acquisition`、`unknown_error_type` / `unknown_error` で具体例外type/cause未保持です。両eventの同一予約snapshotはnormal Gateway2、acquisition generations2、supplement0、MCP invocations1、own-run Jev reservation0、process Jev budget reservation0です。重複phase snapshotを合計しません。取得kindはclaim、receiptは `claim: completed` のみです。HTTP応答後SDK acquisition中例外を特定し、SDK正常完了ではありません。
 
-A new web process started at the 11:02:53 `date` checkpoint. The pre-send `date`
-was 11:03:08; the web-stop `date` was 11:04:40. These are observation checkpoints,
-not a measured provider/request duration. The single S1 returned HTTP 502 and
-produced no Jev card. Fixed events reported `normal_sdk`, then `acquisition`,
-with `unknown_error_type` / `unknown_error`; the concrete exception type and
-cause were not retained. Both events held the same reservation snapshot:
-normal Gateway 2, acquisition generations 2, supplement generations 0, MCP
-invocations 1, own-run Jev reservation 0, process Jev budget reservations 0.
-Do not sum duplicated phase-event snapshots. The acquired kind was `claim` and
-the only receipt was `claim: completed`. This identifies an exception during
-SDK acquisition after HTTP responses, not successful SDK completion.
+DP logは別にnormal HTTP 200×2、業務MCP×1、claim GET200を観測。他業務GET/Jevなし。5 `tools/list` は別です。non-2xx HTTP説明eventはありません。以前4turnのnormal9/業務MCP6/Jev0は別の歴史countで、どちらもprovider billing台帳／無課金証明ではありません。実費は不明です。
 
-DP logs separately observed 2 normal HTTP 200 responses, 1 business MCP call
-and claim GET HTTP 200; no other business GET or Jev route was observed. Five
-`tools/list` discovery calls are separate. No non-2xx HTTP-explanation event was
-recorded. The previous four turns' 9 normal / 6 business MCP / 0 observed Jev
-remain a separate historical log count; neither set is a provider-billing ledger
-or proof of zero charges. Actual cost remains unknown.
+追加S1/S2/S3通信を停止し、own web停止、DPと5APIを保持、cleanup/deleteなしでした。[日本語の安全な失敗画面](evidence/live-s1-phase-failure.png)は1turnのviewport captureでfull-page tile合成ではありません。当時live Jevデモは未完成でした。新記録はphase/予約provenanceを回復しますが、unknown固定分類で具体原因は特定できず、無条件再試行は未承認です。
 
-Further S1/S2/S3 traffic is stopped; own web is stopped, DP and five APIs retained,
-with no cleanup/deletion. Screenshot [Japanese safe failure](evidence/live-s1-phase-failure.png)
-is one viewport capture of the single turn, not a full-page tiled composition.
-The live Jev demo remains incomplete. Process feedback: the new records recover
-phase and reservation provenance, but fixed unknown-type classification still
-does not identify this exception's concrete cause; no blind retry is authorized.
+### 停止後のAPIなし診断修正
 
+S1停止後、固定classifierを公開JavaScript builtinsとinstalled `ai@7.0.92`、`@ai-sdk/provider@4.0.10`、`@ai-sdk/provider-utils@5.0.36` の35 static `AI_*` 名へ拡張しました。`error.name` とconstructor fallbackは固定公開catalogだけと一致し、host-failure eventは未知値/message/stack/error payloadを出しません。canary/constructor fallbackテストを追加。この変更は11:03S1 imageに**含まれず**、失った具体例外を復元できません。classifier coverage不足は診断不具合で、特定されたlive原因ではありません。
 
-### Post-stop, API-free diagnostic corrections
+実 `generateText` とOpenAI adapterのAPIなし再現は、wire `tool_choice: required` に対しtextのみ/tool_callsなしの合成mock HTTP 200を1回受け、公開 `AI_ToolChoiceViolationError` を発生させました。現分類は `model_tool_choice_violation` です。再現可能候補で、元S1のnormalized response/type未保持なので実原因の証明ではありません。Bがnetworkなしで独立実行したunit testです。最終localは48/48（41contracts＋7fault）、typecheck passでした。
 
-After the S1 stop, the fixed classifier was expanded to public JavaScript
-builtins and 35 static `AI_*` names checked in installed `ai@7.0.92`,
-`@ai-sdk/provider@4.0.10`, and `@ai-sdk/provider-utils@5.0.36` sources. Both
-`error.name` and constructor-name fallback match only this fixed public catalog;
-the fixed host-failure event emits no unknown values, messages, stacks or error payload fields.
-A canary/constructor-fallback test was added. These changes were **not** in the
-11:03 S1 image and cannot restore its lost concrete exception type. Missing
-classifier coverage is a diagnostic defect, not an identified live root cause.
+別MCP converter仮説はTypeErrorを**再現しませんでした**。`@ai-sdk/mcp@2.0.44` の `src/tool/mcp-client.ts:209–238` はcontent arrayなしoutputを `{type: "json", value: result}` に変換します。no-I/O transportの実SDK toolは合成wrapper `{source, data}` を正常変換し、Bもsource確認しました。実S1のshapeや原因を証明しません。
 
-An API-free reproduction using actual `generateText` and the actual OpenAI
-adapter received one synthetic mocked HTTP 200 response containing text and no
-`tool_calls` while wire `tool_choice` was `required`. It raised the public
-`AI_ToolChoiceViolationError`, now classified as `model_tool_choice_violation`.
-This is a reproducible candidate condition, not proof of the actual S1 cause;
-its original normalized response/type was not retained. The reproduction is a
-unit test, independently executed by B without network. Final local tests are
-48/48 (41 contracts and 7 execution-path faults), with typecheck passing.
+`@ai-sdk/openai@4.0.60` はrequiredをwire `tool_choice: "required"` にmapします（`src/chat/openai-chat-prepare-tools.ts:55–66`）。local checkoutはGateway2.2 imageを参照しconverter sourceではないため、Gemini `function_calling_config` / `ANY` 変換は未検証です。Google ANY資料やclient serializerで証明できず、sourceなしは非対応の証拠ではありません。停止後追加有料/API/turn試行はありません。
 
-The separate MCP converter hypothesis did **not** reproduce a TypeError:
-`@ai-sdk/mcp@2.0.44` `src/tool/mcp-client.ts:209–238` converts output without a
-`content` array to `{type: "json", value: result}`. A real SDK tool constructed
-with a no-I/O transport converted the synthetic wrapper's `{source, data}`
-successfully; B independently checked the source. This does not prove the
-actual S1 output shape or error cause.
+停止後lint/typecheck/48tests/secret-scan54files0/diffcheck/offlineDocker buildがpass。imageは `sha256:fb50049c62418c3f9ddb5dd57d5d00d9caf5f8b4e2b775eeff9dd435e8aff90c` で追加turnには起動していません。11:03S1は旧 `3666eaf8...` imageなので、後のcatalogから当時errorを遡及特定しません。
 
-`@ai-sdk/openai@4.0.60` maps required choice to wire `tool_choice: "required"`
-(`src/chat/openai-chat-prepare-tools.ts:55–66`). The local checkout references
-the Gateway 2.2 image rather than its converter source. Consequently required
-to Gemini `function_calling_config` / `ANY` conversion remains unverified;
-Google's ANY documentation and the client serializer do not establish it, and
-missing source is not evidence of non-support. No further paid/API/turn trial
-was performed after the stop.
+## native Jev / AI Proxy Advanced確認 — 2026-10-06
 
-Post-stop lint, typecheck, 48 tests, secret scan (54 files/0 findings), diff check
-and offline Docker web build all passed. The post-stop build image is
-`sha256:fb50049c62418c3f9ddb5dd57d5d00d9caf5f8b4e2b775eeff9dd435e8aff90c`;
-it was not started for another turn. The 11:03 S1 used the earlier
-`3666eaf8...` image, so the later catalog does not retroactively identify its error.
+公式[AI Gateway 2.x entity mapping](https://developer.konghq.com/ai-gateway/ai-gateway-v2-concepts/)はCPが内部primitiveを設定し、AI ModelをAI Proxy Advancedへ対応付けると説明します。native2.x設定でありGateway3.x plugin APIの再利用を仮定していません。[TypeSafe provider契約](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)は最低2.2、`decisions`、`typesafe` format、native requestのAI Model entity名を要求します。例pathは `/jev/v1/systemone` でbodyはChatCompletion変換せず通過します。
 
-## Native Jev / AI Proxy Advanced checkpoint — 2026-10-06
+実 `kong/kong-ai-gateway:2.2.0` imageのread-only確認でAdvanced handler compiled module/provider dispatchを確認しました。逆アセンブルは `kong.llm.plugin.base` をimportし、`filters/setup.ljbc` が `model.provider` を読み `llm.new_driver(provider)`、`driver.prepare_dns` を呼びます。`/usr/local/share/lua/5.1/` の `kong/llm/plugin/shared-filters/configure-request.lua:52–78` は `kong.llm.drivers.<provider>` を選び `configure_request`、`normalize-request.lua:332–370,458–483` は必要時 `to_format` を呼びます。`kong/llm/drivers/typesafe.lua:45–75` はTypeSafe adapter/upstream targetを扱います。file hashは下のsanitized evidence内です。実装対応の証拠で個別request traceではありません。
 
-The official [AI Gateway 2.x entity mapping](https://developer.konghq.com/ai-gateway/ai-gateway-v2-concepts/)
-states that the CP provisions underlying primitives and maps AI Model to AI
-Proxy Advanced. This is native 2.x configuration, not an assumed reuse of a
-Gateway 3.x plugin configuration API. The [TypeSafe provider contract](https://developer.konghq.com/ai-gateway/ai-providers/typesafe/)
-requires minimum 2.2, `decisions`, `typesafe` format, and an AI Model entity name
-in the native request. Its example path is `/jev/v1/systemone`; the body is
-passed through rather than converted into ChatCompletion.
+専用DPのAdmin8001にlistenerはなく、内部read-only `/plugins` probeはconnection-refusedでした。再試行／公開はしません。Model/routeのgenerated plugin instance対応とhandler実行は**直接未観測**です。公式mapping、登録native TypeSafe model/provider、接続DP2.2.0、Advanced→TypeSafe実装は意図した機能利用を支持しますが、下のsmokeを個別handler traceとは呼びません。
 
-Read-only inspection of the actual `kong/kong-ai-gateway:2.2.0` image found the
-Advanced handler's compiled module and provider dispatch. Its disassembly imports
-`kong.llm.plugin.base`; `filters/setup.ljbc` reads `model.provider`, calls
-`llm.new_driver(provider)`, then `driver.prepare_dns`. Under
-`/usr/local/share/lua/5.1/`, `kong/llm/plugin/shared-filters/configure-request.lua:52–78`
-selects `kong.llm.drivers.<provider>` and calls `configure_request`;
-`normalize-request.lua:332–370,458–483` calls the selected driver's `to_format`
-when needed. `kong/llm/drivers/typesafe.lua:45–75` handles the TypeSafe adapter
-and upstream target. File hashes are in the sanitized evidence below. This
-establishes implementation support, not a trace of an individual request.
+dummy transportの独立review後、所有者承認のsingle smokeは [`scripts/jev-gateway-smoke.py`](../scripts/jev-gateway-smoke.py) を使い、専用DP loopback `/jev/v1/systemone` へ1POST、alias `insurance-jev-decisions`、合成choice質問1件、timeout10秒、redirect/proxy/retryなし、既存inbound Jev `apikey` で実施しました。上流provider credentialはclientから送りません。preflightはnetwork前に0600local secretを読み、errorは検証済みbounded redaction、成功出力は小さいallowlist投影です。
 
-The dedicated DP has no listener on Admin port 8001; the exact internal
-read-only `/plugins` probe returned connection-refused. It was not repeated or
-enabled. Consequently the particular model/route's generated plugin instance
-association and handler execution remain **not directly observed**. Official
-mapping, registered native TypeSafe model/provider, attached DP 2.2.0, and its
-Advanced-to-TypeSafe implementation support the configuration's intended use
-of that capability. Do not label the smoke below an individual-handler trace.
+bash `date` 確認は**11:48:49〜11:48:50 JST**（provider latency計測ではない）。応答は**HTTP 200**、実model **`jev-1.13.0`**、choice **`green`**、confidence1、probability green1/other0、usage **340 input / 32 output tokens** でした。confidenceは正解保証ではありません。同時間帯DP access logもJev route POST/200を1回示します。payload hashと許可resultは [`evidence/native-jev-single-smoke.json`](evidence/native-jev-single-smoke.json) に保存し、raw body/header/credential/保険factは保存していません。
 
-After independent dummy-transport review, the owner-approved single smoke used
-[`scripts/jev-gateway-smoke.py`](../scripts/jev-gateway-smoke.py): one POST to
-the dedicated DP's loopback `/jev/v1/systemone`, model alias
-`insurance-jev-decisions`, one synthetic choice question, 10-second timeout,
-no redirects/proxy/retries, and the existing inbound Jev `apikey` credential.
-Upstream provider credentials were not sent by this client. Preflight loads
-0600 local secrets before network access; errors use the verified bounded
-redaction helper, and successful output is a small allowlisted projection.
+AI Gateway2.2を通した実native TypeSafe/Jev応答と公式Advanced mappingを確認しました。保険3質問ledger、normalLLM/MCP、日本語result card、個別plugin traceは**完了しません**。このprobeのnormal/MCP/client→provider bypassは0です。Gateway経由Jev1回成功ですが内部upstream送信数は直接未観測です。先のJev0観測の失敗S1とは別probeです。実費は不明で0ではありません。その後推論なし、当時web停止、保持DP/API不変、提案fact取得architecture変更は未承認でした。
 
-The bash `date` checkpoints were **11:48:49–11:48:50 JST** (not a measured
-provider latency). The request returned **HTTP 200**, actual model
-**`jev-1.13.0`**, choice **`green`**, confidence 1, probabilities green 1 / other 0,
-and usage **340 input / 32 output tokens**. Confidence is not a correctness
-guarantee. The same-window DP access log independently shows one Jev route
-POST/200. The payload hash and permitted result fields are saved in
-[`evidence/native-jev-single-smoke.json`](evidence/native-jev-single-smoke.json);
-no raw body, headers, credentials or insurance facts are saved.
-
-This confirms an actual native TypeSafe/Jev response through AI Gateway 2.2
-and the official underlying Advanced mapping. It does **not** complete the
-three-question insurance ledger, normal LLM/MCP flow, Japanese result card,
-or individual plugin trace. Normal and MCP requests, and client-to-provider
-bypass requests, were zero in this probe. One Gateway-mediated Jev request
-succeeded; its internal upstream send count was not directly observed. This
-new probe is separate from the earlier failed S1 turns with observed Jev zero.
-Actual monetary cost is unknown, not zero. No further inference
-followed; web remains stopped, retained DP/APIs are unchanged, and the proposed
-fact-acquisition architecture change remains unapproved.
-
-Process feedback: the previous Admin probe's opaque failure was narrowed to
-connection-refused/no listener; source bytecode and official mapping were kept
-distinct from live execution evidence. B independently reviewed the helper
-using temporary dummy secrets and transports before the single real POST.
-Post-probe offline checks passed: lint, typecheck, 48 unit tests, secret scan
-(55 files, zero findings), Next.js build, diff check and helper Python compilation.
-No web or provider request was started by those checks.
+進行上の所見：以前Admin probeの不透明な失敗をconnection-refused/listenerなしまで限定し、source bytecode／公式mappingとlive実行証拠を区別しました。Bはsingle real POST前に一時dummy secret/transportでhelperを独立reviewしました。probe後offlineはlint/typecheck/48unit tests/secret-scan55files0/Nextbuild/diffcheck/helper Python compileがpass。検査からweb/provider requestは開始していません。

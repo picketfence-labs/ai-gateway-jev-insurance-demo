@@ -3,16 +3,13 @@ export type LiveConfig = {
   gatewayApiKey: string;
   gatewayModel: string;
   gatewayTimeoutMs: number;
-  gatewayRequestBudget: number;
   mcpApiKey: string;
   mcpTimeoutMs: number;
-  mcpToolInvocationBudget: number;
   mcpUrls: Record<string, string>;
   jevUrl: string;
   jevApiKey: string;
   jevModel: string;
   jevTimeoutMs: number;
-  jevAttemptBudget: number;
 };
 
 export type ConfigResult = { ok: true; config: LiveConfig } | { ok: false; reason: string };
@@ -39,18 +36,15 @@ export function validateLiveConfig(env: NodeJS.ProcessEnv): ConfigResult {
   const gatewayApiKey = env.AI_GATEWAY_API_KEY;
   const gatewayModel = env.AI_GATEWAY_MODEL;
   const gatewayTimeoutMs = positiveInteger(env.AI_GATEWAY_TIMEOUT_MS);
-  const gatewayRequestBudget = positiveInteger(env.AI_GATEWAY_REQUEST_BUDGET);
   const mcpApiKey = env.MCP_API_KEY;
   const mcpTimeoutMs = positiveInteger(env.MCP_TIMEOUT_MS);
-  const mcpToolInvocationBudget = positiveInteger(env.MCP_TOOL_INVOCATION_BUDGET);
   const jevUrl = httpUrl(env.AI_GATEWAY_JEV_URL);
   const jevApiKey = env.AI_GATEWAY_JEV_API_KEY;
   const jevModel = env.AI_GATEWAY_JEV_MODEL;
   const jevTimeoutMs = positiveInteger(env.AI_GATEWAY_JEV_TIMEOUT_MS);
-  const jevAttemptBudget = positiveInteger(env.AI_GATEWAY_JEV_ATTEMPT_BUDGET);
   const mcpEntries = endpointKeys.map((key) => [key, httpUrl(env[key])] as const);
-  if (!gatewayUrl || !gatewayApiKey || !gatewayModel || !gatewayTimeoutMs || !gatewayRequestBudget || !mcpApiKey || !mcpTimeoutMs || !mcpToolInvocationBudget || !jevUrl || !jevApiKey || !jevModel || !jevTimeoutMs || !jevAttemptBudget || mcpEntries.some(([, url]) => !url)) {
-    return { ok: false, reason: "Required live Gateway, MCP, Jev, model, timeout, or request-budget configuration is missing or invalid." };
+  if (!gatewayUrl || !gatewayApiKey || !gatewayModel || !gatewayTimeoutMs || !mcpApiKey || !mcpTimeoutMs || !jevUrl || !jevApiKey || !jevModel || !jevTimeoutMs || mcpEntries.some(([, url]) => !url)) {
+    return { ok: false, reason: "Required live Gateway, MCP, Jev, model, or timeout configuration is missing or invalid." };
   }
   return {
     ok: true,
@@ -59,74 +53,26 @@ export function validateLiveConfig(env: NodeJS.ProcessEnv): ConfigResult {
       gatewayApiKey,
       gatewayModel,
       gatewayTimeoutMs,
-      gatewayRequestBudget,
       mcpApiKey,
       mcpTimeoutMs,
-      mcpToolInvocationBudget,
       mcpUrls: Object.fromEntries(mcpEntries.map(([key, url]) => [key.replace("MCP_", "").replace("_URL", "").toLowerCase(), url!])),
       jevUrl,
       jevApiKey,
       jevModel,
       jevTimeoutMs,
-      jevAttemptBudget,
     },
   };
 }
 
-export class ProcessUsageBudget {
-  private gatewayCalls = 0;
-  private jevAttempts = 0;
-  private mcpInvocations = 0;
-  private gatewayLimit?: number;
-  private jevLimit?: number;
-  private mcpLimit?: number;
-
-  configure(gatewayLimit: number, jevLimit: number, mcpLimit: number): boolean {
-    if (this.gatewayLimit !== undefined && this.gatewayLimit !== gatewayLimit) return false;
-    if (this.jevLimit !== undefined && this.jevLimit !== jevLimit) return false;
-    if (this.mcpLimit !== undefined && this.mcpLimit !== mcpLimit) return false;
-    this.gatewayLimit = gatewayLimit;
-    this.jevLimit = jevLimit;
-    this.mcpLimit = mcpLimit;
-    return true;
-  }
-  reserveGatewayCall(): boolean {
-    if (this.gatewayLimit === undefined || this.gatewayCalls >= this.gatewayLimit) return false;
-    this.gatewayCalls += 1;
-    return true;
-  }
-  reserveJevAttempt(): boolean {
-    if (this.jevLimit === undefined || this.jevAttempts >= this.jevLimit) return false;
-    this.jevAttempts += 1;
-    return true;
-  }
-  reserveMcpInvocation(): boolean {
-    if (this.mcpLimit === undefined || this.mcpInvocations >= this.mcpLimit) return false;
-    this.mcpInvocations += 1;
-    return true;
-  }
-  usage() { return { gatewayCalls: this.gatewayCalls, jevAttempts: this.jevAttempts, mcpInvocations: this.mcpInvocations }; }
-}
-
-export class TurnLimits {
+export class TurnUsageCounter {
   private phaseAGenerations = 0;
   private supplementGenerations = 0;
   private mcpInvocations = 0;
-  reserveGeneration(phase: "agent" | "supplement"): boolean {
-    if (phase === "agent") {
-      if (this.phaseAGenerations >= 6) return false;
-      this.phaseAGenerations += 1;
-      return true;
-    }
-    if (this.supplementGenerations >= 1) return false;
-    this.supplementGenerations += 1;
-    return true;
+  recordGeneration(phase: "agent" | "supplement"): void {
+    if (phase === "agent") this.phaseAGenerations += 1;
+    else this.supplementGenerations += 1;
   }
-  reserveMcpInvocation(): boolean {
-    if (this.mcpInvocations >= 8) return false;
-    this.mcpInvocations += 1;
-    return true;
-  }
+  recordMcpInvocation(): void { this.mcpInvocations += 1; }
   usage() { return { phaseAGenerations: this.phaseAGenerations, supplementGenerations: this.supplementGenerations, mcpInvocations: this.mcpInvocations }; }
 }
 
@@ -135,7 +81,7 @@ export function isRequestId(value: unknown): value is string {
 }
 
 export class LiveRequestRegistry {
-  private readonly reserved = new Map<string, { fingerprint: string; result: Promise<unknown> }>();
+  private readonly reserved = new Map<string, { fingerprint: string; result: Promise<unknown>; completed: boolean }>();
 
   async execute<T>(requestId: string, fingerprint: string, operation: () => Promise<T>): Promise<{ status: "created" | "replayed"; result: T } | { status: "conflict" | "full" }> {
     const previous = this.reserved.get(requestId);
@@ -143,9 +89,15 @@ export class LiveRequestRegistry {
       if (previous.fingerprint !== fingerprint) return { status: "conflict" };
       return { status: "replayed", result: await previous.result as T };
     }
-    if (this.reserved.size >= 4096) return { status: "full" };
-    const result = Promise.resolve().then(operation);
-    this.reserved.set(requestId, { fingerprint, result });
+    if (this.reserved.size >= 4096) {
+      const oldestCompleted = [...this.reserved].find(([, entry]) => entry.completed);
+      if (!oldestCompleted) return { status: "full" };
+      this.reserved.delete(oldestCompleted[0]);
+    }
+    const entry = { fingerprint, result: Promise.resolve().then(operation) as Promise<unknown>, completed: false };
+    this.reserved.set(requestId, entry);
+    const result = entry.result as Promise<T>;
+    void result.then(() => { entry.completed = true; }, () => { entry.completed = true; });
     return { status: "created", result: await result };
   }
 }
