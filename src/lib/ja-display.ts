@@ -191,6 +191,7 @@ export type DisplayDecisionField = {
   label: string;
   value: string;
   probabilities: { key: string; label: string; value: number }[];
+  mostSupported: { candidates: { key: string; label: string; value: number }[]; probability: number } | null;
   confidence: number | null;
   legend: { key: string; label: string }[];
 };
@@ -203,18 +204,34 @@ export type DisplayDecision = {
   warnings: string[];
 };
 
-function probabilityRows(kind: "desk" | "priority" | "next_check", value: unknown, version: string) {
+function probabilityRows(
+  kind: "desk" | "priority" | "next_check",
+  value: unknown,
+  legend: { key: string; label: string }[],
+) {
   if (!isRecord(value)) return [];
-  const priorityCriteria = version === "insurance-intake-v2"
-    ? localizedRubric.priorityCriteria
-    : version === "insurance-intake-v1" ? legacyPriorityCriteria : [];
   return Object.entries(value).flatMap(([key, candidate]) => {
     if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < 0 || candidate > 1) return [];
-    const label = kind === "priority"
-      ? priorityCriteria.find(([score]) => score === key)?.[1] ?? unknownValue(key)
-      : choiceLabel(kind, key);
+    const label = kind === "priority" ? legend.find((item) => item.key === key)?.label ?? unknownValue(key) : choiceLabel(kind, key);
     return [{ key, label, value: candidate }];
   });
+}
+
+function mostSupportedScore(value: unknown, legend: { key: string; label: string }[], version: string) {
+  if (version !== "insurance-intake-v2" || !isRecord(value)) return null;
+  const keys = ["0", "1", "2"];
+  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) return null;
+  const rows = keys.map((key) => {
+    const probability = value[key];
+    return typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1
+      ? { key, label: legend.find((item) => item.key === key)?.label ?? unknownValue(key), value: probability }
+      : null;
+  });
+  if (rows.some((row) => row === null)) return null;
+  const validRows = rows as { key: string; label: string; value: number }[];
+  const probability = Math.max(...validRows.map((row) => row.value));
+  if (probability === 0) return null;
+  return { candidates: validRows.filter((row) => row.value === probability), probability };
 }
 
 const legacyPriorityCriteria = [["0", "通常の状況確認・手続きに関する問い合わせ"], ["1", "追加確認または申告内容との不一致"], ["2", "早めに担当者と話したいという明示的な希望"]] as const;
@@ -241,15 +258,15 @@ function displayAnswer(key: "desk" | "priority" | "next_check", answer: unknown,
   const rawValue = isRecord(answer) ? key === "priority" ? record.score : record.choice : answer;
   const rawLegend = isRecord(record.legend) ? record.legend : null;
   const legend = key === "priority"
-    ? rawLegend
-      ? Object.entries(rawLegend).map(([score, text]) => {
-        if (typeof text !== "string") return { key: score, label: unknownValue(text) };
-        const prefix = `${score}: `;
-        const value = text.startsWith(prefix) ? text.slice(prefix.length) : text;
-        const knownLabels = version === "insurance-intake-v1" ? knownV1LegendValues
-          : version === "insurance-intake-v2" ? knownV2LegendValues : null;
-        return { key: score, label: knownLabels ? knownLabels[value] ?? unknownValue(text) : text };
-      })
+      ? rawLegend
+        ? Object.entries(rawLegend).map(([score, text]) => {
+          if (typeof text !== "string") return { key: score, label: unknownValue(text) };
+          const prefix = `${score}: `;
+          const legendValue = knownVersion && text.startsWith(prefix) ? text.slice(prefix.length) : text;
+          const knownLabels = version === "insurance-intake-v1" ? knownV1LegendValues
+            : version === "insurance-intake-v2" ? knownV2LegendValues : null;
+          return { key: score, label: knownLabels ? knownLabels[legendValue] ?? unknownValue(text) : `基準版未確認の原文: ${text}` };
+        })
       : fixture && knownVersion
         ? (version === "insurance-intake-v2" ? localizedRubric.priorityCriteria : legacyPriorityCriteria).map(([score, text]) => ({ key: score, label: text }))
         : []
@@ -258,17 +275,19 @@ function displayAnswer(key: "desk" | "priority" | "next_check", answer: unknown,
   if (key === "priority") {
     if (typeof rawValue !== "number" || !Number.isFinite(rawValue) || rawValue < 0 || rawValue > 2) value = unknownValue(rawValue);
     else {
-      const exact = knownVersion && Number.isInteger(rawValue) ? legend.find((entry) => entry.key === String(rawValue))?.label : undefined;
-      value = !knownVersion
-        ? `${rawValue} / 2（基準版未確認。段階解釈はしていません）`
-        : exact ? `${rawValue} / 2 · ${exact}` : `${rawValue} / 2（連続スコア。段階ラベルは付与していません）`;
+      value = version === "insurance-intake-v2"
+        ? `${rawValue} / 2`
+        : version === "insurance-intake-v1"
+          ? `${rawValue} / 2（連続スコア。段階ラベルは付与していません）`
+          : `${rawValue} / 2（基準版未確認。段階解釈はしていません）`;
     }
   } else value = choiceLabel(key, rawValue);
   return {
     key,
     label,
     value,
-    probabilities: probabilityRows(key, record.probabilities, version),
+    probabilities: probabilityRows(key, record.probabilities, legend),
+    mostSupported: key === "priority" ? mostSupportedScore(record.probabilities, legend, version) : null,
     confidence: typeof record.confidence === "number" && Number.isFinite(record.confidence) && record.confidence >= 0 && record.confidence <= 1 ? record.confidence : null,
     legend,
   };

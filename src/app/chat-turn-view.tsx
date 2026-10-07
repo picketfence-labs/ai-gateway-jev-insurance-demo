@@ -44,7 +44,7 @@ function RubricView() {
     <ul>{localizedRubric.deskCriteria.map(([key, label]) => <li key={key}>{label} <code>({key})</code></li>)}</ul>
     <h4>追加確認度 · スコア方式（Score）0〜2</h4><p>{localizedRubric.priorityInstructions}</p>
     <ol>{localizedRubric.priorityCriteria.map(([score, label]) => <li key={score}><code>{score}</code>: {label}</li>)}</ol>
-    <p className="small">連続スコアとして返されます。信頼度は事実の正しさや客観的な緊急度を保証しません。</p>
+    <p className="small">連続スコアとして返されます。Jev回答の自信はTypeSafeが候補確率から算出する分布の要約で、独立した再判定・正答率・客観的な緊急度ではありません。</p>
     <h4>次に確認すること · 選択式（Choice）</h4><p>{localizedRubric.nextCheckInstructions}</p>
     <ul>{localizedRubric.nextCheckCriteria.map(([key, label]) => <li key={key}>{label} <code>({key})</code></li>)}</ul>
   </>;
@@ -60,13 +60,27 @@ function primaryLabel(value: string): string {
 function DecisionSummaryView({ value, version }: { value: unknown; version: string }) {
   const summary = summarizeDecision(value, version);
   if (!summary) return <p className="empty">所定の形式の判断結果はありません。代替スコアは表示していません。</p>;
+  const percent = (n: number) => new Intl.NumberFormat("ja-JP", { style: "percent", maximumFractionDigits: 2 }).format(n);
   return <>
     {summary.fields.map((field) => <section key={field.key} className="decision-field">
-      <h4>{field.label}</h4><p>{primaryLabel(field.value)}</p>
-      {field.probabilities.length > 0 && <details><summary>選択肢の確率</summary><p className="small">選択肢の確率</p><ul>{field.probabilities.map((item) => <li key={item.key}>{primaryLabel(item.label)}: {new Intl.NumberFormat("ja-JP", { style: "percent", maximumFractionDigits: 2 }).format(item.value)}</li>)}</ul></details>}
+      <h4>{field.label}</h4>
+      {field.key === "priority" && version === "insurance-intake-v2" && <p className="small">{field.mostSupported
+        ? `${field.mostSupported.candidates.length > 1 ? "同率最多の指針" : "最多支持の指針"}：${field.mostSupported.candidates.map((item) => `${item.key}「${item.label}」（${percent(item.value)}）`).join("／")}`
+        : "最多支持の指針：候補確率が不足・無効、または正の支持がないため表示していません。スコアは再計算していません。"}</p>}
+      <p>{field.key === "priority" && version === "insurance-intake-v2" ? `平均スコア：${field.value}` : primaryLabel(field.value)}</p>
+      {field.key === "priority" && version === "insurance-intake-v2" && <p className="small">0〜2の段階番号を候補確率で重み付けした平均位置です。最多支持の段階とは別です。</p>}
+      {field.probabilities.length > 0 && <details><summary>候補確率</summary><p className="small">Jev応答の候補確率（原値。合計を補正していません）</p><ul>{field.probabilities.map((item) => <li key={item.key}>{primaryLabel(item.label)}: {percent(item.value)}</li>)}</ul></details>}
       {field.legend.length > 0 && <details><summary>尺度の凡例</summary><p className="small">尺度の凡例</p><ul>{field.legend.map((item) => <li key={item.key}><code>{item.key}</code>: {item.label}</li>)}</ul></details>}
-      {field.confidence !== null && <p className="small">信頼度: {new Intl.NumberFormat("ja-JP", { style: "percent", maximumFractionDigits: 2 }).format(field.confidence)}。正しさを保証する値ではありません。</p>}
+      {field.confidence !== null && <p className="small">Jev回答の自信: {percent(field.confidence)}。TypeSafeが候補確率から算出する分布の要約で、独立した再判定や正答率ではありません。</p>}
     </section>)}
+    {version === "insurance-intake-v2" && <details className="score-method"><summary>確率・平均スコア・Jev回答の自信の見方</summary>
+      <p>最多支持の指針は、Jevが返した候補確率で最も高い段階です。同率なら該当する指針をすべて表示します。平均スコアやJev回答の自信とは別の値です。</p>
+      <p>Scoreの平均スコアは <code>Σ(i × pᵢ)</code> です。段階番号 <code>i</code> とその確率 <code>pᵢ</code> の確率加重平均で、段階の間に位置する連続値です。画面は整数であっても段階ラベルを付けません。</p>
+      <p>Choiceの自信は <code>(p_max − 1/n) / (1 − 1/n)</code>。<code>n</code> は候補数、<code>p_max</code> は最大確率です。</p>
+      <p>3段階Scoreの自信は <code>max(0, 1 − Σ(pᵢ × |i − m|) / MAD_uniform)</code>。<code>m</code> は最多確率の段階、<code>MAD_uniform = (1/3) × Σ(i=0..2)|i−1| = 2/3</code> です。</p>
+      <p className="small">画面はJevが返した平均スコア、候補確率、自信を表示します。自信はモデルの自己申告や独立した再判定ではなく、TypeSafeが候補確率を要約した値です。画面で自信やスコアを再計算せず、閾値判定も正答率の評価も行いません。これらの式はTypeSafeの公開定義であり、この例の回答品質を保証しません。</p>
+      <p><a href="https://docs.typesafe.ai/confidence">TypeSafe: Confidence（自信の計算式）</a> · <a href="https://docs.typesafe.ai/primitives/score">TypeSafe: Score（段階と平均スコア）</a></p>
+    </details>}
     {summary.kind === "actual" && <><p>モデル識別子: <code>{summary.model ?? "未対応の値"}</code></p><p>利用量: 入力 {summary.usage?.input ?? "—"} / 出力 {summary.usage?.output ?? "—"} トークン</p>{summary.warnings.map((warning, index) => <p className="notice" key={index}>{displayWarning(warning)}</p>)}</>}
     <details className="raw-evidence"><summary>{"Jev応答の原値JSON（英語キーを含む技術証跡）"}</summary><pre>{JSON.stringify(value, null, 2)}</pre></details>
   </>;

@@ -379,7 +379,7 @@ describe("native Jev contract and one-attempt semantics", () => {
     };
     const v2Summary = summarizeDecision(v2Response, "insurance-intake-v2");
     expect(v2Summary?.fields[1].label).toBe("追加確認度");
-    expect(v2Summary?.fields[1].value).toBe("0.25 / 2（連続スコア。段階ラベルは付与していません）");
+    expect(v2Summary?.fields[1].value).toBe("0.25 / 2");
     expect(v2Summary?.fields[1].legend[2].label).toBe("同じ記録項目への異議が申告され、人による照合が必要");
 
     const wrongV2Legend = structuredClone(v2Response);
@@ -392,7 +392,7 @@ describe("native Jev contract and one-attempt semantics", () => {
     expect(fixtureSummary?.kind).toBe("fixture");
     expect(fixtureSummary?.fields.map((field) => field.value)).toEqual([
       "保険金請求の状況（claim_progress）",
-      "1 / 2 · 投影されない詳細または限定的な確認が必要",
+      "1 / 2",
       "請求に関する追加情報を確認（claim_additional_information）",
     ]);
     expect(fixture).toEqual(scenarios.S1.fixtureDecision);
@@ -439,8 +439,83 @@ describe("native Jev contract and one-attempt semantics", () => {
     const unknownVersionSummary = summarizeDecision(actual, "future-rubric-v9");
     expect(unknownVersionSummary?.fields[1].label).toBe("スコア（基準版未確認）");
     expect(unknownVersionSummary?.fields[1].value).toBe("1.24 / 2（基準版未確認。段階解釈はしていません）");
-    expect(unknownVersionSummary?.fields[1].legend[0].label).toBe(actual.answers.priority.legend["0"]);
-    expect(unknownVersionSummary?.fields[1].probabilities[0].label).toMatch(/^未対応の値/);
+    expect(unknownVersionSummary?.fields[1].legend[0].label).toBe(`基準版未確認の原文: ${actual.answers.priority.legend["0"]}`);
+    expect(unknownVersionSummary?.fields[1].probabilities[0].label).toMatch(/^基準版未確認の原文:/);
+  });
+
+  it("separates a synthetic v2 score mean, most-supported level, and native confidence without rewriting evidence", () => {
+    const synthetic = structuredClone(nativeResponse);
+    synthetic.model = "synthetic-native-mock";
+    synthetic.answers.priority.score = 0.83;
+    synthetic.answers.priority.confidence = 0.55;
+    synthetic.answers.priority.legend = {
+      "0": "0: exposed records support a narrow explanation of the queried field and no same-field disagreement is reported",
+      "1": "1: a detail is not projected or a limited confirmation is needed, without an explicit dispute of the same recorded field or value",
+      "2": "2: the user explicitly disputes the same projected field or value and a human should compare that unresolved reported difference; not a verified error or urgency",
+    };
+    synthetic.answers.priority.probabilities = { "0": 0.235, "1": 0.7, "2": 0.065 };
+    const before = JSON.stringify(synthetic);
+
+    const summary = summarizeDecision(synthetic, "insurance-intake-v2");
+    const score = summary?.fields[1];
+    expect(score?.label).toBe("追加確認度");
+    expect(score?.value).toBe("0.83 / 2");
+    expect(score?.mostSupported).toEqual({
+      candidates: [{ key: "1", label: "投影されない詳細または限定的な確認が必要", value: 0.7 }],
+      probability: 0.7,
+    });
+    expect(score?.confidence).toBe(0.55);
+    expect(JSON.stringify(synthetic)).toBe(before);
+
+    const tied = structuredClone(synthetic);
+    tied.answers.priority.score = 0.5;
+    tied.answers.priority.probabilities = { "0": 0.5, "1": 0.5, "2": 0 };
+    expect(summarizeDecision(tied, "insurance-intake-v2")?.fields[1].mostSupported?.candidates.map((item) => item.key)).toEqual(["0", "1"]);
+    expect(summarizeDecision(tied, "insurance-intake-v2")?.fields[1].probabilities.find((item) => item.key === "2")?.value).toBe(0);
+
+    const noSupport = structuredClone(synthetic);
+    noSupport.answers.priority.probabilities = { "0": 0, "1": 0, "2": 0 };
+    const noSupportSummary = summarizeDecision(noSupport, "insurance-intake-v2")?.fields[1];
+    expect(noSupportSummary?.mostSupported).toBeNull();
+    expect(noSupportSummary?.probabilities.map((item) => item.value)).toEqual([0, 0, 0]);
+
+    const choiceWithDifferentProbabilityMaximum = structuredClone(synthetic);
+    choiceWithDifferentProbabilityMaximum.answers.desk = {
+      ...choiceWithDifferentProbabilityMaximum.answers.desk,
+      choice: "claim_progress",
+      probabilities: { claim_progress: 0.2, application_status: 0.8, payment_status: 0, policy_information: 0, general_intake: 0 },
+    };
+    const choiceSummary = summarizeDecision(choiceWithDifferentProbabilityMaximum, "insurance-intake-v2")?.fields[0];
+    expect(choiceSummary?.value).toBe("保険金請求の状況（claim_progress）");
+    expect(choiceSummary?.mostSupported).toBeNull();
+
+    const missingLegend = structuredClone(synthetic);
+    delete (missingLegend.answers.priority as Partial<typeof synthetic.answers.priority>).legend;
+    const noLegend = summarizeDecision(missingLegend, "insurance-intake-v2")?.fields[1];
+    expect(noLegend?.mostSupported?.candidates[0].label).toBe("未対応の値（原値: 1）");
+    expect(noLegend?.legend).toEqual([]);
+
+    const unknownLegend = structuredClone(synthetic);
+    unknownLegend.answers.priority.legend["1"] = "1: future meaning";
+    expect(summarizeDecision(unknownLegend, "insurance-intake-v2")?.fields[1].mostSupported?.candidates[0].label).toBe("未対応の値（原値: 1: future meaning）");
+
+    const zeroConfidence = structuredClone(synthetic);
+    zeroConfidence.answers.priority.confidence = 0;
+    expect(summarizeDecision(zeroConfidence, "insurance-intake-v2")?.fields[1].confidence).toBe(0);
+
+    const integerV1 = structuredClone(nativeResponse);
+    integerV1.answers.priority.score = 1;
+    const integerV1Summary = summarizeDecision(integerV1, "insurance-intake-v1")?.fields[1];
+    expect(integerV1Summary?.label).toBe("案内上の優先度（旧v1）");
+    expect(integerV1Summary?.value).toBe("1 / 2（連続スコア。段階ラベルは付与していません）");
+
+    const missingProbabilities = structuredClone(synthetic);
+    delete (missingProbabilities.answers.priority as Partial<typeof synthetic.answers.priority>).probabilities;
+    expect(summarizeDecision(missingProbabilities, "insurance-intake-v2")?.fields[1].mostSupported).toBeNull();
+    const unknownVersion = summarizeDecision(synthetic, "future-rubric-v9")?.fields[1];
+    expect(unknownVersion?.label).toBe("スコア（基準版未確認）");
+    expect(unknownVersion?.mostSupported).toBeNull();
+    expect(unknownVersion?.probabilities[1].label).toMatch(/^基準版未確認の原文:/);
   });
 
   it("distinguishes missing, invalid choice, wrong-type, and out-of-range responses", () => {

@@ -81,3 +81,15 @@ Append a dated entry when behavior differs from expectations. Include expectatio
 - 独立検証: 別担当が初回76 unit tests成功を再現。S9の任意契約参照について発見前拒否・発見後取得・Jev申込投影から契約状態除外を追加し、統合検証は77 tests成功。最終source/docsオフライン差分は独立レビューPASS。追加後の77 tests、lint、typecheck、scan、diff-checkを別担当が再現した。runtime更新の操作承認はこのレビューではなく別の既承認範囲に基づく。
 - 実行境界: 今回の実モデルPOSTは0回。API seed、Konnect、data plane、5 APIの変更は行わない。既存英語の歴史的文書は一部残し、主要README・新規TEST・新規ADRは日本語とした。ownerの実モデル受入・PR merge・Issue closeはこの検証の完了とは別。
 - 手順上の改善: ケース切替と会話クリアは過去のUI結果を消すため、比較手順で操作前に事実・基準版・原値を保存する。また申込の3種類／請求の4種類は必須取得集合で、許可された発見参照の追加GET数の上限としない。
+
+## 2026-10-07: v2 Score表示とJev回答の自信を分離
+
+- 変更: v2の追加確認度カードで、確率最多の指針、Jevが返した平均スコア、Jev回答の自信を別表示にした。最多確率が同率なら全段階を示し、候補確率が欠落・無効・全0の場合や凡例が未対応の場合は意味を推定しない。Scoreの確率からChoice表示を置き換えない。
+- 意味: Score値は0〜2の段階番号を候補確率で重み付けした平均位置で、最多支持の段階とは別。native confidenceはTypeSafeが確率分布から要約して返す値で、モデルの自己申告・独立再判定・正答率ではない。実装でScoreやconfidenceを再計算せず、閾値も追加しない。画面詳細に公式式と[Confidence](https://docs.typesafe.ai/confidence)／[Score](https://docs.typesafe.ai/primitives/score)を記載した。
+- v1境界: 保存済みv1応答は旧尺度と既存の安全な凡例mapを保つ。既知の版でもScore数値へ段階ラベルを直結せず、未知版は原凡例を基準版未確認として表示する。保存証拠・契約・seed・設定・APIは変更していない。
+- 合成表示確認: unit testのsynthetic native mock `.235 / .70 / .065` は平均スコア `.83 / 2`、最多段階 `1`（70%）、native confidence 55%を別表示する。これは合成テスト値であり、実S3応答・新規Jev評価ではない。同率、ゼロ支持、欠損凡例／確率、未知版、v1、raw不変、native Choice保持もmockで確認した。
+- 自己検証: lint、typecheck、全79 unit tests、secret scan（61 files／0 findings）、`git diff --check` が成功。unit testsはmock失敗境界由来の `live_host_failure` 診断をstderrへ1件出すが、終了コード0。live callとDocker/Compose操作は0回。Manager統合build・runtime確認・独立reviewは別工程。
+- 対象: `src/lib/ja-display.ts`、`src/app/chat-turn-view.tsx`、`tests/unit/contracts.test.ts`、`tests/unit/ui-render.test.ts`、`README.md`、`TEST.md`。
+- 手順上の改善: none。既存表示だけではChoice確率の最多候補、Score平均値、native confidenceを混同し得たため、説明と合成contractを追加した。実Jev品質・確率較正・正答率は未確認。
+- 統合検証: 最終の表示文言修正後にlint、typecheck、79 unit tests（46 contract／25 failure／8 render）、secret scan（61 files／0 findings）、diff-check、Next.js production buildを再実行し、すべて成功した。別担当の独立レビューもPASS。全0確率を「未確認」とする軽微な文言指摘は修正し、missing／全0の表示テストを追加してfocused再レビューで解消を確認した。
+- runtime確認: 修正後のsourceからwebイメージをbuildし、既存の承認済み設定でwebだけを再作成した。コンテナ内の表示sourceとレビュー対象sourceのSHA-256が一致。画面GETは200、readinessはreadyだったが、上流接続の検証とは扱わない。data planeと5 APIのcontainer ID・image・StartedAtは前後で不変。今回の通常LLM／Jev POSTとKonnect変更は0回で、実S3の再評価・ブラウザーでの新規ターン送信は行っていない。

@@ -24,8 +24,42 @@ describe("live-only compact per-turn UI",()=>{
   const before=JSON.stringify(decision);const view=html(turn(0,{reason:"completed"}));
   expect(view).not.toContain("処理を完了できませんでした");expect(view).not.toContain('class="error"');
   expect(view).not.toContain("保険金請求の状況（claim_progress）");
-  expect(view).toContain("Jev応答の原値JSON");expect(view).toContain("jev-1.13.0");expect(view).toContain("1.24 / 2");expect(view).toContain("信頼度: 0%");
-  expect(view).toContain('&quot;confidence&quot;: 0');expect(JSON.stringify(decision)).toBe(before);
+   expect(view).toContain("Jev応答の原値JSON");expect(view).toContain("jev-1.13.0");expect(view).toContain("1.24 / 2");expect(view).toContain("Jev回答の自信: 0%");
+   expect(view).toContain('&quot;confidence&quot;: 0');expect(JSON.stringify(decision)).toBe(before);
+  });
+ it("renders a synthetic v2 mean separately from its most-supported level and native confidence",()=>{
+  const syntheticV2={model:"synthetic-native-mock",answers:{
+   desk:{type:"choice",choice:"claim_progress",probabilities:{claim_progress:1,application_status:0,payment_status:0,policy_information:0,general_intake:0},confidence:1},
+   priority:{type:"score",score:0.83,legend:{
+    "0":"0: exposed records support a narrow explanation of the queried field and no same-field disagreement is reported",
+    "1":"1: a detail is not projected or a limited confirmation is needed, without an explicit dispute of the same recorded field or value",
+    "2":"2: the user explicitly disputes the same projected field or value and a human should compare that unresolved reported difference; not a verified error or urgency",
+   },probabilities:{"0":0.235,"1":0.7,"2":0.065},confidence:0.55},
+   next_check:{type:"choice",choice:"claim_progress",probabilities:{claim_progress:1,claim_additional_information:0,application_progress:0,application_correction:0,payment_receipt:0,payment_amount:0,policy_information:0,clarify_intent:0},confidence:1},
+  },usage:{input_tokens:12,output_tokens:4}};
+  const view=html(turn(0,{decision:syntheticV2,criteriaVersion:"insurance-intake-v2"}));
+  expect(view).toContain("追加確認度");
+  expect(view).toContain("平均スコア：0.83 / 2");
+  expect(view).toContain("0〜2の段階番号を候補確率で重み付けした平均位置です。最多支持の段階とは別です。");
+  expect(view).toContain("最多支持の指針：1「投影されない詳細または限定的な確認が必要」（70%）");
+  expect(view).toContain("Jev回答の自信: 55%");
+  expect(view.indexOf("最多支持の指針")).toBeLessThan(view.indexOf("平均スコア：0.83 / 2"));
+  expect(view.indexOf("平均スコア：0.83 / 2")).toBeLessThan(view.indexOf("Jev回答の自信: 55%"));
+  expect(view).toContain("Choiceの自信は");
+  expect(view).toContain("MAD_uniform");expect(view).toContain("2/3");
+  expect(view).toContain("https://docs.typesafe.ai/confidence");expect(view).toContain("https://docs.typesafe.ai/primitives/score");
+  expect(view).toContain("正答率ではありません");
+
+  const tied={...syntheticV2,answers:{...syntheticV2.answers,priority:{...syntheticV2.answers.priority,score:0.5,probabilities:{"0":0.5,"1":0.5,"2":0}}}};
+  const tiedView=html(turn(0,{decision:tied,criteriaVersion:"insurance-intake-v2"}));
+  expect(tiedView).toContain("同率最多の指針：0「記録の範囲で説明でき、同じ項目への異議がない」（50%）／1「投影されない詳細または限定的な確認が必要」（50%）");
+
+  const missingMap={...syntheticV2,answers:{...syntheticV2.answers,priority:{type:"score",score:0.83,confidence:0.55,legend:syntheticV2.answers.priority.legend}}};
+  const missingMapView=html(turn(0,{decision:missingMap,criteriaVersion:"insurance-intake-v2"}));
+  expect(missingMapView).toContain("最多支持の指針：候補確率が不足・無効、または正の支持がないため表示していません");
+  const noSupport={...syntheticV2,answers:{...syntheticV2.answers,priority:{...syntheticV2.answers.priority,probabilities:{"0":0,"1":0,"2":0}}}};
+  const noSupportView=html(turn(0,{decision:noSupport,criteriaVersion:"insurance-intake-v2"}));
+  expect(noSupportView).toContain("最多支持の指針：候補確率が不足・無効、または正の支持がないため表示していません");
  });
  it("does not assign an absent criteria version to either v1 or v2",()=>{
   const view=html(turn(0,{criteriaVersion:undefined}));
