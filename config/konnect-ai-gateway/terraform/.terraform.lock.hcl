@@ -5,7 +5,9 @@ provider "registry.terraform.io/kong/konnect" {
   version     = "3.25.0"
   constraints = "3.25.0"
   hashes = [
+    "h1:CShnpl8Kw6ZA6Tgz/IYLPxH23anO5INHAy+JG+h9NZw=",
     "h1:mpwaIjd3/k4W2Wmx6mDRbhv8GXOIWt4YRkABFstq914=",
+    "h1:xW0GOgBf7god+CXlsnG+vY0bBA/gVGVp91OWRRwLuQo=",
     "zh:0dd9f87612e6f38bdbbf1ab205fa374a57797e0ba926e66a28b9ac43445df3a7",
     "zh:4a055b625ab64a313b26845e7eaf4a6d86e5398f967b6ce6ff0120447753400a",
     "zh:7f11557545949d306bbe3a322791ddcbfc38a089ae7a595df29921e4a701e0cf",

@@ -45,3 +45,9 @@ UI Docker buildはNode 22で実施しました。ローカル検証時のNodeは
 ## 調査結論の訂正
 
 初期調査は安定版3.22.0だけを検査し、専用AI Gateway resourceが現在の安定版にもないと範囲を広げてしまいました。独立レビューが[公式changelog](https://github.com/Kong/terraform-provider-konnect/blob/main/CHANGELOG.md)で3.23.0の専用resource追加と3.25.0のAI Gateway 2.2対応を確認しました。最終構築設定は安定版3.25.0へ切り替え、schema・lifecycle・import・静的検査を再確認しました。ローカルにある旧版の結果を現在の対応範囲へ一般化せず、対象版のreleaseとschemaを確認することが必要です。
+
+## 初回CIのchecksum検査と修正
+
+初回commit `471f6ff46d0566548a53d5ddb70a97a9eac06ced`では、ローカルDarwinの検査は成功しましたが、GitHubのLinux `iac-checks`が失敗しました。readonly initでproviderの取得は成功した一方、展開済みLinux packageの`h1` checksumがlockに記録されておらず、続くvalidateで一致検査に失敗しました。ローカル成功をLinux CI成功として扱いません。
+
+公式Registryの`terraform providers lock`で、既存Darwin ARMに加えてLinux AMD64・ARM64のchecksumを取得しました。version、HCL、API構成は変更せず、lockに2つの`h1`を追加しています。tracked HCLとlockだけを一時コピーし、公式Terraform 1.15.1のLinux imageで`init -backend=false -input=false -lockfile=readonly`と`validate`が警告なく成功しました。state、秘密、証明書はコピーしていません。CIのreadonly検査は維持しています。最新commitのremote結果は[PR #7のchecks](https://github.com/picketfence-labs/ai-gateway-jev-insurance-demo/pull/7/checks)で確認できます。
