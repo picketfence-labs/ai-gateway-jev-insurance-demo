@@ -1,52 +1,56 @@
-# Offline browser smoke — 2026-10-05
+# オフラインブラウザーsmokeの履歴
 
-Production build served on localhost with the default offline configuration. No live configuration or credential was supplied.
+> この記録は2026-10-05の過去版を、オフラインfixtureで確認した証拠です。現在のライブ専用UI、10ケース、`insurance-intake-v2`のライブ検証ではありません。fixtureの画面画像は変更していません。
 
-## Results
+## 実行条件
 
-- S1, S2, and S3 fixture previews: passed. Approved synthetic IDs, nullable fields, and fixture labels were visible.
-- One comparison per scenario: passed. Each displayed `parent_snapshot fixture`, comparison live GETs `0`, and a fixture-only facts-hash label.
-- Missing-facts fixture: `unassessed`, Jev calls `0`, no previous successful decision card.
-- Jev-failure fixture: `decision_error`, no previous decision card, supplement skipped because the decision failed.
-- Supplement-failure fixture: decision card retained, separately labeled supplement failure.
-- Final rendering: inquiry, projected facts, versioned rubric and ordered priority scale, and Jev card are separate; the supplement has its own label.
-- Live readiness: locked by default; no configuration values exposed. Browser requests were localhost readiness and offline endpoints only.
+production buildをlocalhostで、既定のオフライン設定のまま提供しました。live設定や認証情報は渡していません。
 
-Playwright browser interaction and rendered-DOM checks were used. A missing favicon produced one nonblocking 404; no functional console error was observed.
+## 当時の確認結果
 
-![Offline fixture comparison with separated evidence](offline-ui.png)
+- S1、S2、S3のfixture previewで、当時承認された合成ID、nullable項目、fixture表示を確認しました。
+- 各ケースのfixture比較で、`parent_snapshot fixture`、live GET 0件、fixture専用facts hash表示を確認しました。この比較画面は現在の機能ではありません。
+- 事実不足fixtureは`unassessed`、Jev呼出し0回、過去の成功カードなしでした。
+- Jev失敗fixtureは`decision_error`、過去の判断カードなし、補足をskipしました。
+- 補足失敗fixtureでは判断カードを残し、補足失敗を別表示しました。
+- 入力、投影事実、版付き基準、順序付きpriority尺度、Jevカードが分離され、補足に専用ラベルがありました。
+- live readinessは既定でlockedで、設定値を表示しませんでした。ブラウザー通信はlocalhostのreadinessとoffline endpointだけでした。
 
-## Limits
+Playwrightのブラウザー操作と描画DOMを確認しました。faviconの404が1件ありましたが、機能に関するconsole errorは観測されませんでした。
 
-This is browser evidence for fixture mode, not external LLM, MCP, Gateway, or native Jev integration. Actual provider/model behavior, recommendation quality, cloud configuration, and live budgets remain unverified and require separate approval.
+![証拠を分けたオフラインfixtureの比較画面](offline-ui.png)
 
-## Bounded chat follow-up
+## 以前の会話UI確認
 
-The final production build was checked again after the bounded chat changes:
+bounded chat変更後のproduction buildを再度確認しました。
 
-- Two successive S1 inquiries appended two user/assistant turns rather than replacing the transcript.
-- Selecting the earlier turn displayed its own inquiry, projected facts, rubric, decision card, and separate supplement while preserving both turns.
-- Changing S1 to S2 cleared the transcript, selected evidence, pending snapshot, inquiry, and comparison state. No S1 identifier or prior inquiry remained.
-- During a locally delayed offline request, mode, case, and Clear controls were disabled; completion retained both turns. This test delayed only a localhost request.
-- Tool receipts showed safe names, status, source, and counts. Offline plans were explicitly not executed, with zero actual tool calls.
-- Default live readiness remained locked. No external service was invoked.
+- S1の問い合わせを続けて2回送ると、結果カードを置き換えず、利用者とassistantの2ターンを追加しました。
+- 最初のターンを選ぶと、その問い合わせ、投影事実、基準、判断カード、補足だけを表示し、ターン同士を混ぜませんでした。
+- S1からS2へケースを変えると会話、選択中の証拠、pending snapshot、問い合わせ、比較状態が消え、S1のIDと前の問い合わせは残りませんでした。
+- localhost requestを遅延させた確認では、処理中にmode、case、clear操作を無効にし、完了時に両ターンを保持しました。
+- tool receiptは安全な名前、状態、取得元、件数だけでした。offline計画は未実行と明示し、実tool呼出しは0件でした。
+- live readinessはlockedのまま、外部サービスは呼び出しませんでした。
 
-![Two offline chat turns with earlier-turn evidence selected](offline-chat.png)
+![2つのオフライン会話ターンと選択中の証拠](offline-chat.png)
 
-Independent code review and mock tests additionally checked the same-case, one-previous-turn plus current-inquiry LLM history boundary; mode reset; and the exclusion of history from Jev fact collection. Those are not claims of external integration success. Real-time streaming and persistent chat storage are not implemented.
+独立コードreviewとmock testでは、同一targetでLLMに渡す前ターン1件と今回の入力の境界、mode reset、Jev事実取得で履歴を除外する動作を確認しました。外部連携の成功を示す記録ではありません。リアルタイムstreamingと永続chat保存は未実装です。
 
-## Japanese UI acceptance follow-up
+## 以前の日本語UI確認
 
-The production build was served on localhost without live configuration. The document language is `ja`, and title, visible controls, accessibility names, scenarios, fixture narratives, evidence summaries, and failure messages are Japanese. IDs, API names, technical acronyms, wire values alongside their Japanese labels, and optional original JSON are deliberate technical-evidence exceptions.
+live設定なしでproduction buildをlocalhostへ提供しました。document languageは`ja`で、title、表示項目、accessibility name、ケース名、fixture会話、証拠summary、失敗メッセージが日本語でした。ID、API名、technical acronym、元のJSONは技術証跡として英語のままです。
 
-- S1, S2, S3 base and comparison displays: passed. Japanese desk/next-check labels and original priority values were retained; no unsupported-value fallback appeared for approved fixtures. Each comparison showed parent-snapshot fixture provenance, unchanged fixture hash, and zero real GETs.
-- Missing facts: Japanese unassessed state, zero Jev calls, no decision card. Jev failure: Japanese failure state, no replacement decision card. Supplement failure: separately labeled failure with the fixture decision retained.
-- Two Japanese inquiries appended two turns. Selecting the first turn restored its own inquiry/evidence without mixing the second. Case change cleared turns/evidence, input and comparison state.
-- Projected facts and decision summaries use Japanese display-only mappings. Expanding original JSON retained English keys and synthetic record IDs. Raw details are collapsed by default.
-- Default live option remained disabled (verified from its DOM disabled property), readiness was locked, and browser API requests were exclusively localhost readiness/offline endpoints. No external service was invoked.
+- 当時のS1、S2、S3のbase／comparison表示で日本語案内先・next-checkラベルと元のpriority値を保持し、承認済fixtureに未対応値fallbackはありませんでした。比較fixtureの親snapshot、変更なしのfixture hash、live GET 0件も表示しました。
+- 事実不足は日本語の未評価状態、Jev 0回、判断カードなしでした。Jev失敗は代替カードなし、補足失敗は判断カードを残した別表示でした。
+- 2件の日本語問い合わせを別ターンとして追加し、1件目を選ぶと対応する問い合わせと証拠を復元しました。ケース変更時は会話、証拠、入力、比較状態を消去しました。
+- 投影事実と判断のsummaryは日本語の表示mapを使い、原JSONを開くと英語keyと合成IDを保持しました。raw detailsは初期表示で折りたたまれていました。
+- offline UI optionはdisabled、readinessはlockedで、browser API通信はlocalhostのreadiness／offline endpointだけでした。外部サービスは呼び出しませんでした。
 
-![Japanese conversation and selected-turn evidence](japanese-chat.png)
+![日本語の会話と選択ターンの証拠](japanese-chat.png)
 
-![Japanese supplement failure with fixture decision retained](japanese-supplement-failure.png)
+![fixture判断を保持した日本語の補足失敗](japanese-supplement-failure.png)
 
-Native decision confidence/probability/continuous-score and unknown-value mappings are tested with synthetic contract data, not a live service. Native Jev questions, instructions and rubric wire values are unchanged. Normal-agent and supplement prompts request Japanese responses, but actual live language behavior remains unverified. The prior streaming/persistence/live limits still apply.
+native decisionのconfidence／確率／連続Scoreと未知値mapは、実サービスではなく合成契約データで確認しました。TypeSafe nativeの質問、指示、rubric wire valueは変更していません。通常LLMと補足promptは日本語応答を求めますが、ライブ時の言語動作は未確認でした。この過去確認時点ではstreaming、永続保存、外部連携にも未実装・未確認の限界がありました。
+
+## 現行の実行記録との区別
+
+2026-10-06のv1基準S1ライブ実行とTypeSafe native Jevの単独smokeは、[Compose実行記録](../ai-gateway-compose.md)の別証拠です。上記のoffline browser smokeをlive証拠と混同せず、v1の結果を現行v2に読み替えません。
