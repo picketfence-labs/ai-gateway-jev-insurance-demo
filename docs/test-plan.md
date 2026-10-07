@@ -17,7 +17,7 @@
 | フィールドの意味 | 支払額`null`、欠落と`null`、文字列status、商品と契約特約 | 0への置換、enum状態の捏造、特約の推測がない |
 | Jev応答契約 | 回答key不足、Choice不正、Score非有限／範囲外、確率やconfidence不正 | 契約エラーにし、raw応答を転送したり成功値を合成したりしない |
 | 確率map | 空、候補欠落、未知候補、不完全なScore map | 全候補keyを要求し、値を保持する。合計誤差が`1e-6`を超えた時は警告し、正規化しない |
-| 1回試行と再送 | 同時再送、timeout後、時間経過後、同IDへの異なるpayload | プロセス内でagent／Jevを再実行しない。同一入力は保持中の結果を返し、異なる入力は拒否。失敗試行を再利用しない |
+| 1回試行と再送 | 同時再送、timeout後、時間経過後、同IDへの異なるpayload | プロセス内でagent／Jevを再実行しない。同一入力は保持中の結果を返し、異なる入力は拒否。保持中の失敗応答も再送で再利用し、成功扱いしない |
 | 毎ターン取得 | 10ケース、複数の新規ターン、同文異事実、同じ事実での複合／曖昧問い合わせ | 新しい台帳とGETを使う。比較入力を拒否し、前ターンの事実を再利用しない。期待方向と実Jevの品質を区別する |
 | Phase C補足 | Jev成功と判断失敗 | MCP toolを無効にする。補足でJevカードを上書きしない。判断失敗なら補足を省略する |
 | UI状態と経路 | live-only画面、readiness locked／ready、pending／error／completed | 未承認時はlocked。設定値を返さず、fixtureへfallbackしない。通信再送のrequest IDとfixtureの表示境界を確認する |
@@ -27,30 +27,30 @@
 | 日本語表示 | 既知／未知Choice、Score凡例、confidence、確率、status、source、10ケース | 日本語表示だけを変え、契約値や事実は変えない。未知値はraw値を示す。折りたたみJSONは元の英語key/valueを保持する |
 | 上限 | tool／step／文字／byte／出力上限と部分台帳 | 黙って切り詰めず、状態を明示して停止する |
 
-主な自動テストは`tests/unit/contracts.test.ts`と`tests/unit/ui-render.test.ts`です。合成fixtureとmock transportだけを使い、上流リクエストは行いません。通過しても実Jevの選択、Score、confidence、回答品質、live接続を保証しません。リアルタイムstreamingとmessage-part表示は未実装です。
+主な自動テストは`app/tests/unit/contracts.test.ts`と`app/tests/unit/ui-render.test.ts`です。合成fixtureとmock transportだけを使い、上流リクエストは行いません。通過しても実Jevの選択、Score、confidence、回答品質、live接続を保証しません。リアルタイムstreamingとmessage-part表示は未実装です。
 
 ## ローカル検証
 
 Node.js 22を使います。環境構築とUI起動は[INSTRUCTIONS.md](../INSTRUCTIONS.md)、テスト結果の履歴は[トラブルシューティング記録](troubleshooting-log.md)を参照してください。
 
 ```sh
-npm run lint
+npm --prefix app run lint
 ```
 
 ```sh
-npm run typecheck
+npm --prefix app run typecheck
 ```
 
 ```sh
-npm test
+npm --prefix app test
 ```
 
 ```sh
-npm run secret-scan
+npm --prefix app run secret-scan
 ```
 
 ```sh
-NEXT_TELEMETRY_DISABLED=1 npm run build
+NEXT_TELEMETRY_DISABLED=1 npm --prefix app run build
 ```
 
 CIはライブ承認を無効にして同じオフライン確認を実行します。buildやfixture testだけではlive provider、Gateway、MCP、TypeSafe native Jev、認証、budget、timeoutの実動作を検証しません。
@@ -92,3 +92,7 @@ live validatorが要求する環境変数の**名前**は次のとおりです�
 ## 完了証拠
 
 source revision、実行したコマンド、test件数、secret scan結果、該当するUI証拠、未検証事項を添えます。新規ライブ通信がない場合は「未実施」と記し、費用を0と推定しません。担当範囲の独立reviewとownerのdemo受入を分けます。過去の証拠と現在の実装版が違う場合、過去のPASSを無条件で転用しません。
+
+## 構築・配置の検証
+
+`app/`への配置、公開GHCR保険API、Terraform・kongctl構築の検証は[構築検証の記録](evidence/reproducible-setup-validation.md)にまとめます。IaCの静的検査は、新規Konnect環境への実applyやモデル疎通の証拠ではありません。

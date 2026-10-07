@@ -69,7 +69,7 @@ function run(events: unknown[], failureReporter?: (value: unknown) => void, case
 
 describe("live turn failure evidence", () => {
   it("runs ten repeated fresh turns and reacquires selected-case facts on every turn", async () => {
-    const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
+    const native = JSON.parse(readFileSync(new URL("../../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
     const toolCalls: Entity[] = [];
     setupClients(async (entity) => { toolCalls.push(entity); return scenarios.S1.facts[entity]; });
     const network = vi.fn(async (input: unknown) => new Response(JSON.stringify((input instanceof Request ? input.url : String(input)).includes("/jev/") ? native : {}), { status: 200 }));
@@ -97,7 +97,7 @@ describe("live turn failure evidence", () => {
   });
 
   it.each(caseKeys.map((caseId) => scenarios[caseId]))("builds a fresh seeded $id turn and sends its v2 native Jev input", async (scenario) => {
-    const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
+    const native = JSON.parse(readFileSync(new URL("../../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
     const getCalls: { entity: Entity; args: unknown }[] = [];
     setupClients(async (entity, args) => {
       getCalls.push({ entity, args: structuredClone(args) });
@@ -151,7 +151,7 @@ describe("live turn failure evidence", () => {
   });
 
   it.each(["completed", "failed"] as const)("separates producer success reason from %s supplement status", async (supplementStatus) => {
-    const native = JSON.parse(readFileSync(new URL("../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
+    const native = JSON.parse(readFileSync(new URL("../../../docs/evidence/live-s1-a-native-card.json", import.meta.url), "utf8"));
     const before = JSON.stringify(native);
     generateTextMock.mockResolvedValueOnce({ text: "正常な回答" });
     if (supplementStatus === "failed") generateTextMock.mockRejectedValueOnce(new Error("CANARY supplement error"));

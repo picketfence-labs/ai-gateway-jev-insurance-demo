@@ -18,10 +18,31 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: app/package-lock.json
       - run: npm ci --legacy-peer-deps
+        working-directory: app
       - run: npm run lint
+        working-directory: app
       - run: npm run typecheck
+        working-directory: app
       - run: npm test
+        working-directory: app
       - run: python3 scripts/konnect-diagnostic.py --self-test
       - run: npm run secret-scan
+        working-directory: app
       - run: npm run build
+        working-directory: app
+
+  iac-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.1
+      - run: terraform fmt -check
+        working-directory: config/konnect-ai-gateway/terraform
+      - run: terraform init -backend=false -input=false -lockfile=readonly
+        working-directory: config/konnect-ai-gateway/terraform
+      - run: terraform validate
+        working-directory: config/konnect-ai-gateway/terraform

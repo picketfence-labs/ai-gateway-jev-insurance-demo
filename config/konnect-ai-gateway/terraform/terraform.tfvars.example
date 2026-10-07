@@ -1,0 +1,11 @@
+konnect_server_url       = "https://us.api.konghq.com"
+ai_gateway_name          = "insurance-demo"
+ai_gateway_display_name  = "Insurance Demo AI Gateway"
+
+data_plane_certificates = {
+  initial = {
+    title            = "insurance-demo-dp-initial"
+    certificate_path = "../../../certs/cluster.crt"
+    description      = "Initial public client certificate for the local hybrid data plane"
+  }
+}

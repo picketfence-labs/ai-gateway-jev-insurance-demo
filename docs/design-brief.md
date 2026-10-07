@@ -1,5 +1,7 @@
 # 保険問い合わせデモの設計方針
 
+構築・配置の責務は[ADR 0003](decisions/0003-reproducible-setup-and-app-layout.md)に従います。アプリとテストは`app/`、保険APIは公開GHCRイメージを使い、Konnect/TerraformとAI Gateway/kongctlの設定を分けて管理します。
+
 現行仕様は10件の合成ケース、各ターンの新規API取得、`insurance-intake-v2`の追加確認度です。[ADR 0002](decisions/0002-fresh-turns-and-contextual-intake-v2.md)、[TEST.md](../TEST.md)、[Chat UIガイド](../Chat%20UI.md)を現行の仕様・操作の補足正本とします。
 
 ## 現在の状態と証拠の境界
@@ -29,7 +31,7 @@ Customer、Product、Application、Claim、Policyの5種類と、既存seedに�
 ## 既存の構成と実行経路
 
 - UI実装の参考元は[Kong MCP Chat UI](https://github.com/picketfence-labs/konnect-code-mode-mcp/tree/138387290258bab07d86e7544a6ddb33e9f4a6fb/chat-ui)です。Next.js、React、TypeScript、AI SDKのストリーミング、MCPクライアントを使う参考実装ですが、このリポジトリへそのままコピーしたコードではありません。
-- APIの参考元は[合成保険API](https://github.com/picketfence-labs/kong-api-bundle-insurance/tree/ab96eea303e27fe02d98344a31bc7633753da77e)です。独立したPython/FastAPIのseedサービスを使います。元のcommitは固定していますが、イメージdigestとの対応は別途確認が必要です。
+- APIの参考元は[合成保険API](https://github.com/picketfence-labs/kong-api-bundle-insurance/tree/ab96eea303e27fe02d98344a31bc7633753da77e)です。独立したPython/FastAPIのseedサービスを使います。公開GHCRのv0.1.3をdigest固定し、10ケースが使うseedと詳細取得の互換性を確認しています。対応は[イメージ固定情報](../config/insurance-images.lock.json)を参照してください。
 - Composeは5つの内部APIコンテナ、AI Gateway 2.2.0 data plane、UI/backendを記述します。実行と観測の履歴は[Compose記録](ai-gateway-compose.md)にまとめています。この設計書は起動手順ではありません。ローカル構築は[INSTRUCTIONS.md](../INSTRUCTIONS.md)を参照してください。既存のKubernetes一式をコピーしません。
 - 現行の受入構成は、Konnect管理のAI Gateway control planeとself-managed data plane、5つのGET詳細MCP経路、通常LLM用のGemini 2.5 Flash、AI Proxy Advanced経由のTypeSafeネイティブJevです。現在の構成受入、過去の実行証拠、個別handlerやwireの未観測範囲を区別します。対象環境や実リクエストの再確認はこの設計書の承認範囲に含みません。
 - JevはAI Gatewayを通るTypeSafeネイティブ形式のRouteを使います。ChatCompletionへ変換せず、TypeSafeの質問・応答契約を保ちます。

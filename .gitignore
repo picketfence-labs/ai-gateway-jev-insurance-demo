@@ -12,11 +12,24 @@ certs/
 *.tfstate
 *.tfstate.*
 *.tfvars
+*.tfvars.json
 !*.tfvars.example
+*.tfvars.local
+*.auto.tfvars.local
+*.tfplan
+*.plan
+*.plan.json
+**/.terraform/
+**/.planfiles/
+**/.local/
+terraform.rc
+.terraformrc
 
 # Dependencies and generated output
 node_modules/
 .next/
+app/node_modules/
+app/.next/
 dist/
 coverage/
 test-results/

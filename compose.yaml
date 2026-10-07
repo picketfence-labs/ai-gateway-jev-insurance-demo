@@ -74,41 +74,22 @@ services:
 
   product-api:
     <<: &insurance-api
-      build:
-        context: ../kong-api-bundle-insurance
-        dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
-        args:
-          SERVICE: product
+      platform: linux/amd64
       expose: ["8000"]
       networks: [demo]
+    image: ghcr.io/picketfence-labs/insurance-product:v0.1.3@sha256:1b9b2a7973b963fbb24862a3133f8b181a41b9720b45d8d0c8ee6e3a664232a0
   customer-api:
     <<: *insurance-api
-    build:
-      context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
-      args:
-        SERVICE: customer
+    image: ghcr.io/picketfence-labs/insurance-customer:v0.1.3@sha256:e60419e0b7993be4f4c6a3c249db2d75e57beb4d6c8787788e40ed1c9a04c84c
   application-api:
     <<: *insurance-api
-    build:
-      context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
-      args:
-        SERVICE: application
+    image: ghcr.io/picketfence-labs/insurance-application:v0.1.3@sha256:4202e7b58a725a37590246478c30a05541efce9b3eb4b070a027903cdb738e2a
   policy-api:
     <<: *insurance-api
-    build:
-      context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
-      args:
-        SERVICE: policy
+    image: ghcr.io/picketfence-labs/insurance-policy:v0.1.3@sha256:f976723fdd440890a7e175d10324b02fc42fa01498b9cb0b230ec6ba52b96e2e
   claim-api:
     <<: *insurance-api
-    build:
-      context: ../kong-api-bundle-insurance
-      dockerfile: ../ai-gateway-jev-insurance-demo/docker/Dockerfile.api
-      args:
-        SERVICE: claim
+    image: ghcr.io/picketfence-labs/insurance-claim:v0.1.3@sha256:1ec0bad0706a2e2e39b11089e56ad0423f34e5a309ac91dded4c8c46e7dea160
 
 networks:
   demo:

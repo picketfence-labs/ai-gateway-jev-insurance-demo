@@ -57,10 +57,26 @@ v2の「追加確認度」は0〜2の連続した平均スコアです。最多�
 
 ## 読む順番
 
-1. [INSTRUCTIONS.md](INSTRUCTIONS.md): 必要条件と安全な起動手順
+1. [INSTRUCTIONS.md](INSTRUCTIONS.md): Terraform・kongctlによる構築とCompose起動手順
 2. [Chat UI.md](Chat%20UI.md): 操作、ターン、証拠、スコアと確率の見方
 3. [TEST.md](TEST.md): 10ケースの入力全文、期待方向、比較手順
 4. [設計方針](docs/design-brief.md)と[検証計画](docs/test-plan.md): 現行仕様と検証範囲
-5. [ADR 0001](docs/decisions/0001-agent-and-host-decision-boundary.md)と[ADR 0002](docs/decisions/0002-fresh-turns-and-contextual-intake-v2.md): 設計判断
+5. [ADR 0003](docs/decisions/0003-reproducible-setup-and-app-layout.md): IaC・公開イメージ・配置の判断
+6. [ADR 0001](docs/decisions/0001-agent-and-host-decision-boundary.md)と[ADR 0002](docs/decisions/0002-fresh-turns-and-contextual-intake-v2.md): 設計判断
 
 作業履歴は[トラブルシューティング記録](docs/troubleshooting-log.md)、過去の画面検証は[ブラウザー証拠](docs/evidence/browser-smoke.md)、作業項目のローカル記録は[Issue #1の記録](docs/issue-draft.md)を参照してください。
+
+
+## リポジトリの構成
+
+| 場所 | 責務 |
+| --- | --- |
+| `app/` | UI・APIホストのソース、テスト、npm/Next.js/TypeScriptの設定。UIはここからビルドします。 |
+| `config/` | KonnectとAI Gatewayの構築設定。秘密やstateはGit管理外です。 |
+| `docker/` | UIのコンテナ定義。保険APIは公開GHCRイメージを取得し、独自ビルドしません。 |
+| `docs/` / `resources/` | 仕様、検証記録、図、画面例 |
+| `scripts/` | アプリと独立したKonnect診断・検証用Pythonツール |
+
+構築は公式安定版Terraform provider `kong/konnect` 3.25.0とkongctl 1.20.2を使います。
+
+ルートにはComposeと環境設定のひな形を残し、全体を起動する入口を揃えています。`.github/workflows/`はGitHub Actionsの検出位置です。Next.js/npmの標準配置は`app/`の中で維持しています。

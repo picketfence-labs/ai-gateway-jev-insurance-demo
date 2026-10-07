@@ -5,7 +5,7 @@ import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import Home from "@/app/page";
 import { ChatHistoryView, ChatTurnView, type LiveChatTurn } from "@/app/chat-turn-view";
-const root=resolve(import.meta.dirname,"../..");
+const root=resolve(import.meta.dirname,"../../..");
 const decision=JSON.parse(readFileSync(resolve(root,"docs/evidence/live-s1-a-native-card.json"),"utf8"));
 const facts=JSON.parse(readFileSync(resolve(root,"docs/evidence/live-s1-a-projected-facts.json"),"utf8"));
 function turn(index=0, patch: Record<string,unknown>={}): LiveChatTurn {
